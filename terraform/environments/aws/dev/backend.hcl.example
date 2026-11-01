@@ -1,0 +1,7 @@
+# 복사해서 backend.hcl 로 쓴다 (backend.hcl 은 커밋하지 않는다).
+# bucket 은 terraform/bootstrap/aws 의 state_bucket 출력값.
+bucket       = "echo-tfstate-<account_id>"
+key          = "aws/dev/terraform.tfstate"
+region       = "ap-northeast-2"
+encrypt      = true
+use_lockfile = true
