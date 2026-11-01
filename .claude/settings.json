@@ -1,0 +1,32 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git add:*)",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && { bash scripts/check.sh 1>&2 || { echo 'Blocked: terraform fmt·validate·tflint 실패. 고치고 다시 시도하세요.' >&2; exit 2; }; }",
+            "timeout": 180,
+            "statusMessage": "Running terraform fmt & validate & tflint before git add..."
+          },
+          {
+            "type": "command",
+            "if": "Bash(git commit:*)",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && { bash scripts/check.sh 1>&2 || { echo 'Blocked: terraform fmt·validate·tflint 실패. 고치고 커밋하세요.' >&2; exit 2; }; }",
+            "timeout": 180,
+            "statusMessage": "Running terraform fmt & validate & tflint before git commit..."
+          },
+          {
+            "type": "command",
+            "if": "Bash(git push:*)",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && { terraform fmt -check -recursive terraform 1>&2 || { echo 'Blocked: terraform fmt 실패로 push 차단.' >&2; exit 2; }; }",
+            "timeout": 60,
+            "statusMessage": "Running terraform fmt before git push..."
+          }
+        ]
+      }
+    ]
+  }
+}
