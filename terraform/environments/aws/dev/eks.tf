@@ -156,3 +156,44 @@ resource "aws_eks_addon" "this" {
   # coredns 는 노드가 있어야 Active 가 된다.
   depends_on = [aws_eks_node_group.default]
 }
+
+# EBS CSI 드라이버. 이게 없으면 PVC(예: 클러스터 안 PostgreSQL)가 디스크를 못 받아 Pending 에 머문다.
+# 권한은 Pod Identity 로 컨트롤러 서비스 계정에만 준다. gp3 기본 StorageClass 는 애드온이 만든다.
+resource "aws_iam_role" "ebs_csi" {
+  name = "${local.cluster_name}-ebs-csi"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "pods.eks.amazonaws.com" }
+      Action    = ["sts:AssumeRole", "sts:TagSession"]
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ebs_csi" {
+  role       = aws_iam_role.ebs_csi.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+}
+
+resource "aws_eks_addon" "ebs_csi" {
+  cluster_name = aws_eks_cluster.this.name
+  addon_name   = "aws-ebs-csi-driver"
+
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+
+  configuration_values = jsonencode({
+    defaultStorageClass = { enabled = true }
+  })
+
+  pod_identity_association {
+    role_arn        = aws_iam_role.ebs_csi.arn
+    service_account = "ebs-csi-controller-sa"
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.ebs_csi,
+    aws_eks_addon.this,
+  ]
+}
