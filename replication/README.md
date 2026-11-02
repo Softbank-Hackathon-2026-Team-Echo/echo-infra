@@ -47,13 +47,19 @@ bash scripts/up.sh            # A·B·PgBouncer 기동 + 논리 복제 설정
 # 터미널 2개로:
 bash scripts/writer.sh        # (터미널 A) 순번 쓰기 계속
 # 몇 초 뒤, 다른 터미널에서:
-bash scripts/cutover.sh       # 무손실 컷오버 (쓰기 정지 시간 출력)
+bash scripts/cutover.sh       # 무손실 컷오버 A→B (쓰기 정지 시간 출력)
 
-bash scripts/verify.sh        # 누락·중복 대조 → "누락 0 · 중복 0" 기대
+bash scripts/verify.sh        # 누락·중복 대조(B) → "누락 0 · 중복 0" 기대
+
+# 롤백(#8): 컷오버 후 역방향 복제를 세우고 A 로 되돌린다
+bash scripts/reverse.sh       # 역방향 복제 B→A (A 를 warm standby 로 재동기화)
+bash scripts/rollback.sh      # 무손실 롤백 B→A (복귀 시간 출력)
+bash scripts/verify.sh pg_a   # 누락·중복 대조(A) → "누락 0 · 중복 0" 기대
+
 bash scripts/down.sh          # 정리 (pgbouncer → pg_a 복원)
 ```
 
-writer는 Ctrl-C로 멈춘다. 컷오버 중 writer는 잠깐 멈췄다 B에서 이어 쓴다.
+writer는 Ctrl-C로 멈춘다. 컷오버·롤백 중 writer는 잠깐 멈췄다 새 primary에서 이어 쓴다.
 
 ## 컷오버 절차 (cutover.sh)
 
@@ -66,10 +72,30 @@ writer는 Ctrl-C로 멈춘다. 컷오버 중 writer는 잠깐 멈췄다 B에서 
 
 > **측정**: 1~6을 `pg_a` 안 **단일 `docker compose exec`** 로 돌리고 `t0`(PAUSE 직전)·`t1`(RESUME 직후)을 **컨테이너 안 시계**로 잰다. 단계마다 host 에서 `docker compose exec` 를 새로 띄우지 않으므로 컨테이너 기동 오버헤드가 빠지고, 실제 배포(직접 psql·영속 연결)의 쓰기 정지 창에 가까워진다. 이를 위해 compose 에서 `./pgbouncer` 를 `pg_a` 에도 `/pgbouncer-conf` 로 마운트했다(이 PoC 전용 배선. 실제 배포는 repoint 가 컷오버 API·설정 반영이라 이 마운트가 필요 없다).
 
+## #8 롤백 — 역방향 복제 B→A + 복귀 (reverse.sh · rollback.sh)
+
+[SPEC infra-8](../specs/infra-8-rollback-reverse-replication.md). 컷오버(A→B) 뒤 **A 를 warm standby 로 살려 두고**, 필요하면 **무손실로 A 로 되돌린다**(NFR-05 ≤60초).
+
+**reverse.sh — 역방향 복제 세팅 (재동기화 선행)**
+A 는 컷오버 전 데이터(1..N)만 있고 B 는 그 뒤로 더 썼으므로, 정방향 객체를 정리하고 **A 를 비운 뒤 B 를 `copy_data=true` 로 다시 받아** B 의 복제본으로 만든다(B publisher `pub_rev`, A subscriber `sub_rev`). 이후 B 의 변경이 A 로 흐른다. 초기 복사 완료는 구독 상태 `r`(ready)로 기다린다.
+
+**rollback.sh — 롤백 B→A (컷오버의 거울상)**
+`PAUSE → A 따라잡기 → 시퀀스 맞춤 → sub_rev DISABLE → repoint(B→A)+RELOAD → RESUME`. 측정 방식은 cutover.sh 와 같다(pg_a 안 단일 exec·컨테이너 시계).
+
+**검증 결과 (로컬 왕복 실행 2026-11-03)**
+- ✅ 역방향 복제 B→A 동작 (재동기화 후 `sub_rev` 상태 `r`, A=B).
+- ✅ 롤백 무손실 — A→B→A 왕복 뒤 A 에서 **211행, n 1~211 연속, 누락 0 · 중복 0**. 롤백 후 쓰기는 A 로 끊김 없이 이어졌다.
+- ✅ **복귀 시간 ≈ 0.46s ≤ 60s (NFR-05)** (내역: PAUSE 드레인 ~0.06s · A 따라잡기 ~0.16s · 시퀀스·repoint·RESUME ~0.24s).
+
+**수동 버튼·절차서·자동 롤백**: 수동 트리거 = `rollback.sh`(실제는 버튼/API #6). 절차서는 [docs/design/롤백 절차서 (B→A).md](../docs/design/롤백%20절차서%20(B→A).md). 헬스체크 폴링·오류율 자동 롤백(Should)은 실제 연결 단계에서 #9·#10 과 붙인다.
+
+**재난(B 급사) vs 계획적 롤백**: 이 PoC 는 **계획적(무손실) 롤백**이다. 재난으로 B 가 죽으면 역방향 복제가 끊겨 마지막 몇 초가 빠질 수 있고(RPO>0), A 복구 후 재동기화가 선행된다(SPEC §2·§7).
+
 ## 이 PoC가 다루지 않는 것
 
 - 실제 클러스터(EKS/GKE) 배포, cross-cloud 연결 (SPEC "실제 연결" 단계)
-- 역방향 복제·롤백 (#8), 백업·PITR (#14), 트래픽 전환 (#6)
+- 재난(B 급사) 자동 감지·장애 주입 복귀, 오류율 자동 롤백(Should) — 실제 연결 단계(#9·#10)
+- 백업·PITR (#14), 트래픽 전환 (#6)
 
 ## 실제 배포로 갈 때 바뀌는 것
 
