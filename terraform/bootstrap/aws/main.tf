@@ -7,6 +7,11 @@ locals {
 
 resource "aws_s3_bucket" "state" {
   bucket = local.state_bucket
+
+  # 지우면 모든 환경의 state 를 잃는다. 정말 지울 때는 이 줄을 먼저 뺀다.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_s3_bucket_versioning" "state" {
