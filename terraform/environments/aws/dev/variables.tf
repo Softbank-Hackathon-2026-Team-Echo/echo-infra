@@ -19,7 +19,7 @@ variable "region" {
 # 네트워크
 
 variable "vpc_cidr" {
-  description = "VPC CIDR. GCP 서울·온프레 K3s 대역과 겹치면 안 된다 (첫 apply 전 확정)"
+  description = "VPC CIDR. GCP 서울·온프레 K3s 대역과 겹치면 안 된다 (표: contracts/aws-outputs.md)"
   type        = string
   default     = "10.50.0.0/16"
 }
