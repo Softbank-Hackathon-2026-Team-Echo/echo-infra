@@ -9,6 +9,7 @@ Envoy 가 읽는 파일 기반 xDS(/etc/envoy/dynamic/clusters.yaml·routes.yaml
   GET  /weights           현재 가중치 {"aws": 90, "gcp": 10}
   PUT  /weights           가중치 변경. 모든 환경 키, 0~100 정수, 합 100
   GET  /status            가중치 + Envoy admin 에서 본 환경별 호스트·healthy 수
+  GET  /summary           최근 30초 요약: 환경별 req/s·5xx 비율·p95·healthy 수 + 전체 + 가중치 (Prometheus 에서 읽음)
 
 환경 변수
   WEIGHTS_TOKEN    Bearer 토큰 (비어 있으면 보호된 경로는 503)
@@ -16,15 +17,18 @@ Envoy 가 읽는 파일 기반 xDS(/etc/envoy/dynamic/clusters.yaml·routes.yaml
   DEFAULT_WEIGHTS  "aws=100,gcp=0" (저장된 가중치가 없을 때)
   DYNAMIC_DIR      Envoy 와 공유하는 디렉터리 (기본 /etc/envoy/dynamic)
   ENVOY_ADMIN      Envoy admin 주소 (기본 http://envoy:9901)
+  PROMETHEUS_URL   Prometheus 주소 (기본 http://prometheus:9090)
   HC_PATH          업스트림 헬스체크 경로 (기본 /healthz)
 """
 
 import json
 import os
+import re
 import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -33,6 +37,7 @@ STATE_DIR = os.path.join(DYNAMIC_DIR, "state")  # watched_directory 는 하위 �
 STATE_PATH = os.path.join(STATE_DIR, "weights.json")
 TOKEN = os.environ.get("WEIGHTS_TOKEN", "")
 ENVOY_ADMIN = os.environ.get("ENVOY_ADMIN", "http://envoy:9901").rstrip("/")
+PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090").rstrip("/")
 HC_PATH = os.environ.get("HC_PATH", "/healthz")
 LISTEN_PORT = int(os.environ.get("PORT", "8080"))
 
@@ -259,6 +264,72 @@ def envoy_cluster_health():
     return out
 
 
+# ---------- Prometheus 요약 ----------
+
+def prom_query(expr):
+    """즉시 쿼리 결과를 {라벨값: float} 로. 실패하면 None."""
+    url = f"{PROMETHEUS_URL}/api/v1/query?" + urllib.parse.urlencode({"query": expr})
+    try:
+        with urllib.request.urlopen(url, timeout=3) as r:
+            data = json.load(r)
+    except (urllib.error.URLError, json.JSONDecodeError, OSError):
+        return None
+    if data.get("status") != "success":
+        return None
+    out = {}
+    for item in data["data"]["result"]:
+        label = item["metric"].get("envoy_cluster_name", "")
+        value = float(item["value"][1])
+        out[label] = None if value != value else value  # NaN → None
+    return out
+
+
+def summary(window="30s"):
+    """환경별 요청 수·5xx 비율·p95·healthy 호스트와 전체 요청 수. echo-was 측정 기록·프론트 근거 화면용."""
+    envs = "|".join(ENVS)
+    rps = prom_query(f'sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total{{envoy_cluster_name=~"{envs}"}}[{window}]))')
+    err = prom_query(f'sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_xx{{envoy_response_code_class="5",envoy_cluster_name=~"{envs}"}}[{window}]))')
+    # 지연 히스토그램은 라우트의 aggregate 클러스터(aws_then_gcp)에 기록된다. 첫 환경 기준으로 돌려준다.
+    p95 = prom_query(f'histogram_quantile(0.95, sum by (le, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_time_bucket{{envoy_cluster_name=~".+_then_.+"}}[{window}])))')
+    healthy = prom_query(f'envoy_cluster_membership_healthy{{envoy_cluster_name=~"{envs}"}}')
+    hosts = prom_query(f'envoy_cluster_membership_total{{envoy_cluster_name=~"{envs}"}}')
+    total = prom_query(f'sum(rate(envoy_http_downstream_rq_total{{envoy_http_conn_manager_prefix="ingress_http"}}[{window}]))')
+    total_err = prom_query(f'sum(rate(envoy_http_downstream_rq_xx{{envoy_http_conn_manager_prefix="ingress_http",envoy_response_code_class="5"}}[{window}]))')
+    ok = all(x is not None for x in (rps, err, p95, healthy, hosts, total, total_err))
+
+    def ratio(num, den):
+        if num is None or den is None or not den:
+            return None
+        return round(num / den, 4)
+
+    def first(d):
+        return next(iter(d.values()), None) if d else None
+
+    per_env = {}
+    for env in ENVS:
+        r = (rps or {}).get(env)
+        e = (err or {}).get(env)
+        lat = (p95 or {}).get(fallback_name(env))
+        per_env[env] = {
+            "rps": None if r is None else round(r, 3),
+            "error_ratio": ratio(e, r) if r else (0.0 if r == 0 else None),
+            "p95_ms": None if lat is None else round(lat, 1),
+            "healthy_hosts": None if healthy is None else int(healthy.get(env, 0)),
+            "hosts": None if hosts is None else int(hosts.get(env, 0)),
+            "weight": CURRENT.get(env),
+        }
+    t = first(total)
+    te = first(total_err)
+    return {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "window": window,
+        "weights": dict(CURRENT),
+        "total": {"rps": None if t is None else round(t, 3), "error_ratio": ratio(te, t) if t else (0.0 if t == 0 else None)},
+        "envs": per_env,
+        "prometheus": "ok" if ok else "unreachable",
+    }
+
+
 # ---------- HTTP ----------
 
 class Handler(BaseHTTPRequestHandler):
@@ -294,6 +365,14 @@ class Handler(BaseHTTPRequestHandler):
             if not self._authorized():
                 return
             return self._send(200, dict(CURRENT))
+        if self.path.split("?", 1)[0] == "/summary":
+            if not self._authorized():
+                return
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            window = q.get("window", ["30s"])[0]
+            if not re.fullmatch(r"[1-9][0-9]{0,3}[smh]", window):
+                return self._send(400, {"error": "window 는 30s·5m 같은 꼴이어야 한다"})
+            return self._send(200, summary(window))
         if self.path == "/status":
             if not self._authorized():
                 return
