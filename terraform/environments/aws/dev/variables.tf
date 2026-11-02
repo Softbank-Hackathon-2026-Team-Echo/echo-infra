@@ -100,8 +100,16 @@ variable "budget_notification_emails" {
 
 # CI
 
-variable "github_repository" {
-  description = "plan 용 OIDC 역할을 받을 GitHub 저장소 (owner/name)"
+# GitHub 저장소 목록은 terraform/modules/github-repos 가 단일 출처다 (GCP 루트와 공유).
+
+# 배포 실행기 (GKE 위 echo-was 일꾼 → EKS)
+
+variable "executor_google_service_account_id" {
+  description = "echo-was 관제탑 GSA 의 uniqueId (GCP 루트 출력값 control_plane_service_account_unique_id). GCP 루트를 먼저 apply 한다"
   type        = string
-  default     = "Softbank-Hackathon-2026-Team-Echo/echo-infra"
+
+  validation {
+    condition     = can(regex("^[0-9]{10,}$", var.executor_google_service_account_id))
+    error_message = "GSA 의 uniqueId(숫자)를 넣는다. 이메일이 아니다."
+  }
 }

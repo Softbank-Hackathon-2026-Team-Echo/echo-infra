@@ -11,6 +11,8 @@
 | `vpc_cidr` | GCP·온프레(VPN), 복제 | `10.50.0.0/16` | 적용 (11/2) |
 | `private_subnet_ids` | 앱(DB 위치 결정 시) | `["subnet-…"]` | 적용 (11/2) |
 | `ecr_repository_urls` | 빌드·배포, 앱 | `{ app = "…/echo/app" }` | 적용 (11/2) |
+| `ci_build_role_arn` | **빌드 실행기**: echo-was 저장소 GitHub Actions(main)가 `aws-actions/configure-aws-credentials` `role-to-assume` 로 받아 ECR push | `arn:aws:iam::…:role/echo-dev-ci-build` | 코드 (11/3) |
+| `executor_role_arn` | **배포 실행기**: GKE 위 echo-was 일꾼이 관제탑 GSA 의 Google ID 토큰으로 받아 EKS 접근 (`sts assume-role-with-web-identity`) | `arn:aws:iam::…:role/echo-dev-executor` | 코드 (11/3) |
 
 ## 환경별 주소 대역 (2026-11-02 확정)
 

@@ -6,5 +6,8 @@ eks_admin_principal_arns = [
 # 장소 IP 가 정해지면 좁힌다
 # eks_public_access_cidrs = ["203.0.113.0/24"]
 
+# 필수. GCP 루트 출력값 control_plane_service_account_unique_id (echo-was 관제탑 GSA 의 숫자 ID)
+executor_google_service_account_id = "<uniqueId>"
+
 budget_limit_usd           = 150
 budget_notification_emails = ["<팀 메일>"]
