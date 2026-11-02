@@ -93,7 +93,7 @@ variable "budget_limit_usd" {
 }
 
 variable "budget_notification_emails" {
-  description = "비용 알림을 받을 메일. 비어 있으면 알림 없이 예산만 만든다"
+  description = "비용 알림을 받을 메일. 비어 있으면 Terraform 예산을 만들지 않는다(콘솔 예산 알림을 쓴다)"
   type        = list(string)
   default     = []
 }

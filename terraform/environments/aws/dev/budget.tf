@@ -1,5 +1,8 @@
 # 월 비용 알림 (NFR-13). 실제 비용 80% 와 예측 비용 100% 에서 메일을 보낸다.
+# 받는 메일이 없으면 만들지 않는다. 그동안은 루트 계정이 콘솔에서 만든 예산 알림(월 USD 150)이 쓰인다.
 resource "aws_budgets_budget" "monthly" {
+  count = length(var.budget_notification_emails) > 0 ? 1 : 0
+
   name         = "${local.name}-monthly"
   budget_type  = "COST"
   limit_amount = tostring(var.budget_limit_usd)
@@ -7,10 +10,10 @@ resource "aws_budgets_budget" "monthly" {
   time_unit    = "MONTHLY"
 
   dynamic "notification" {
-    for_each = length(var.budget_notification_emails) > 0 ? [
+    for_each = [
       { type = "ACTUAL", threshold = 80 },
       { type = "FORECASTED", threshold = 100 },
-    ] : []
+    ]
     content {
       comparison_operator        = "GREATER_THAN"
       notification_type          = notification.value.type
