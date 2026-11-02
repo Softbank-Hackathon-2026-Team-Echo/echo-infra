@@ -18,10 +18,18 @@ resource "aws_iam_role_policy_attachment" "cluster" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
 }
 
+# 컨트롤 플레인 로그(누가 무엇을 했는지). 그룹을 먼저 만들어 보존 기간을 정한다.
+resource "aws_cloudwatch_log_group" "eks" {
+  name              = "/aws/eks/${local.cluster_name}/cluster"
+  retention_in_days = 14
+}
+
 resource "aws_eks_cluster" "this" {
   name     = local.cluster_name
   version  = var.eks_version
   role_arn = aws_iam_role.cluster.arn
+
+  enabled_cluster_log_types = ["api", "audit", "authenticator"]
 
   vpc_config {
     subnet_ids              = [for s in aws_subnet.private : s.id]
@@ -40,7 +48,10 @@ resource "aws_eks_cluster" "this" {
     support_type = "STANDARD"
   }
 
-  depends_on = [aws_iam_role_policy_attachment.cluster]
+  depends_on = [
+    aws_iam_role_policy_attachment.cluster,
+    aws_cloudwatch_log_group.eks,
+  ]
 }
 
 resource "aws_eks_access_entry" "admin" {
@@ -87,6 +98,23 @@ resource "aws_iam_role_policy_attachment" "node" {
   policy_arn = each.value
 }
 
+# IMDSv2 만 허용하고 hop limit 1 로 파드가 노드 역할 자격 증명을 빌리지 못하게 한다.
+# 파드에 AWS 권한이 필요하면 Pod Identity 로 준다.
+resource "aws_launch_template" "node" {
+  name_prefix = "${local.cluster_name}-node-"
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+  }
+
+  tag_specifications {
+    resource_type = "instance"
+    tags          = { Name = "${local.cluster_name}-node" }
+  }
+}
+
 resource "aws_eks_node_group" "default" {
   cluster_name    = aws_eks_cluster.this.name
   node_group_name = "default"
@@ -94,6 +122,11 @@ resource "aws_eks_node_group" "default" {
   subnet_ids      = [for s in aws_subnet.private : s.id]
   instance_types  = var.node_instance_types
   capacity_type   = "ON_DEMAND"
+
+  launch_template {
+    id      = aws_launch_template.node.id
+    version = aws_launch_template.node.latest_version
+  }
 
   scaling_config {
     desired_size = var.node_desired_size
