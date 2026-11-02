@@ -105,3 +105,17 @@ variable "github_repository" {
   type        = string
   default     = "Softbank-Hackathon-2026-Team-Echo/echo-infra"
 }
+
+variable "ci_build_repositories" {
+  description = "빌드 실행기(GitHub Actions)가 ECR 에 이미지를 push 할 수 있는 저장소 (owner/name). main 브랜치만"
+  type        = list(string)
+  default     = ["Softbank-Hackathon-2026-Team-Echo/echo-was"]
+}
+
+# 배포 실행기 (GKE 위 echo-was 일꾼 → EKS)
+
+variable "executor_google_service_account_id" {
+  description = "echo-was 관제탑 GSA 의 uniqueId (GCP 루트 출력값 control_plane_service_account_unique_id). 비어 있으면 실행기 역할을 만들지 않는다"
+  type        = string
+  default     = ""
+}
