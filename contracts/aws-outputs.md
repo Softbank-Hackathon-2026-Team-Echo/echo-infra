@@ -4,13 +4,13 @@
 
 | 출력값 | 받는 쪽 | 예 | 상태 |
 |---|---|---|---|
-| `region` | echo-was `AwsEnvironmentConfig.region` | `ap-northeast-1` | 예정 |
-| `eks_cluster_name` | echo-was `AwsEnvironmentConfig.cluster_name`, Argo CD | `echo-dev-eks` | 예정 |
-| `eks_cluster_endpoint` | Argo CD, AI 에이전트(읽기) | `https://…eks.amazonaws.com` | 예정 |
-| `vpc_id` | 앱·이전 엔진 | `vpc-…` | 예정 |
-| `vpc_cidr` | GCP·온프레(VPN), 복제 | `10.50.0.0/16` | 예정 |
-| `private_subnet_ids` | 앱(DB 위치 결정 시) | `["subnet-…"]` | 예정 |
-| `ecr_repository_urls` | 빌드·배포, 앱 | `{ app = "…/echo/app" }` | 예정 |
+| `region` | echo-was `AwsEnvironmentConfig.region` | `ap-northeast-1` | 적용 (11/2) |
+| `eks_cluster_name` | echo-was `AwsEnvironmentConfig.cluster_name`, Argo CD | `echo-dev-eks` | 적용 (11/2) |
+| `eks_cluster_endpoint` | Argo CD, AI 에이전트(읽기) | `https://…eks.amazonaws.com` | 적용 (11/2) |
+| `vpc_id` | 앱·이전 엔진 | `vpc-…` | 적용 (11/2) |
+| `vpc_cidr` | GCP·온프레(VPN), 복제 | `10.50.0.0/16` | 적용 (11/2) |
+| `private_subnet_ids` | 앱(DB 위치 결정 시) | `["subnet-…"]` | 적용 (11/2) |
+| `ecr_repository_urls` | 빌드·배포, 앱 | `{ app = "…/echo/app" }` | 적용 (11/2) |
 
 ## 환경별 주소 대역 (2026-11-02 확정)
 
