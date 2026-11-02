@@ -135,6 +135,12 @@ variable "github_repository" {
   default     = "Softbank-Hackathon-2026-Team-Echo/echo-infra"
 }
 
+variable "ci_build_repositories" {
+  description = "빌드 실행기(GitHub Actions)가 Artifact Registry 에 이미지를 push 할 수 있는 저장소 (owner/name). main 브랜치만"
+  type        = list(string)
+  default     = ["Softbank-Hackathon-2026-Team-Echo/echo-was"]
+}
+
 # 고정 진입점 (Envoy VM)
 
 variable "entrypoint_machine_type" {

@@ -50,6 +50,16 @@ output "ci_plan_service_account" {
   value       = google_service_account.ci_plan.email
 }
 
+output "ci_build_service_account" {
+  description = "빌드 실행기(echo-was 저장소 GitHub Actions)가 google-github-actions/auth 로 가장할 SA. AR push"
+  value       = google_service_account.ci_build.email
+}
+
+output "control_plane_service_account_unique_id" {
+  description = "관제탑 GSA 의 uniqueId. AWS 루트 변수 executor_google_service_account_id 에 넣는다"
+  value       = google_service_account.control_plane.unique_id
+}
+
 output "ci_workload_identity_provider" {
   description = "GitHub Actions google-github-actions/auth 의 workload_identity_provider"
   value       = google_iam_workload_identity_pool_provider.github.name
