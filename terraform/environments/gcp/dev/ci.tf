@@ -28,12 +28,19 @@ resource "google_iam_workload_identity_pool_provider" "github" {
 resource "google_service_account" "ci_plan" {
   account_id   = "${local.name}-ci-plan"
   display_name = "CI plan (${local.name})"
+
+  depends_on = [
+    google_project_service.this["iam.googleapis.com"],
+    google_project_service.this["cloudresourcemanager.googleapis.com"],
+  ]
 }
 
 resource "google_project_iam_member" "ci_plan_viewer" {
   project = var.project_id
   role    = "roles/viewer"
   member  = "serviceAccount:${google_service_account.ci_plan.email}"
+
+  depends_on = [google_project_service.this["cloudresourcemanager.googleapis.com"]]
 }
 
 resource "google_service_account_iam_member" "ci_plan_wif" {

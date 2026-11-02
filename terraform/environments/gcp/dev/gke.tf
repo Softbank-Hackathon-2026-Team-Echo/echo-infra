@@ -3,6 +3,11 @@
 resource "google_service_account" "nodes" {
   account_id   = "${local.cluster_name}-node"
   display_name = "GKE 노드 (${local.cluster_name})"
+
+  depends_on = [
+    google_project_service.this["iam.googleapis.com"],
+    google_project_service.this["cloudresourcemanager.googleapis.com"],
+  ]
 }
 
 resource "google_project_iam_member" "nodes" {
@@ -16,6 +21,9 @@ resource "google_project_iam_member" "nodes" {
   project = var.project_id
   role    = each.value
   member  = "serviceAccount:${google_service_account.nodes.email}"
+
+  # 첫 apply 때 API 가 켜지기 전에 IAM 을 만들지 않게 한다
+  depends_on = [google_project_service.this["cloudresourcemanager.googleapis.com"]]
 }
 
 resource "google_container_cluster" "this" {
@@ -137,4 +145,6 @@ resource "google_project_iam_member" "gke_admin" {
   project  = var.project_id
   role     = "roles/container.admin"
   member   = each.value
+
+  depends_on = [google_project_service.this["cloudresourcemanager.googleapis.com"]]
 }

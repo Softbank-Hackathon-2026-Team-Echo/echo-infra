@@ -35,6 +35,8 @@ resource "google_compute_subnetwork" "this" {
 resource "google_compute_address" "nat" {
   name   = "${local.name}-nat"
   region = var.region
+
+  depends_on = [google_project_service.this["compute.googleapis.com"]]
 }
 
 resource "google_compute_router" "this" {
