@@ -22,6 +22,7 @@ flowchart LR
 | AWS 환경 (VPC·EKS·ECR·Budgets·CI 역할) | `terraform/environments/aws/dev` | SPEC 작성 중 ([infra-1](specs/infra-1-aws-foundation.md)) |
 | GCP state 버킷 | `terraform/bootstrap/gcp` | 코드 있음, 미적용 |
 | GCP 환경 (VPC·NAT·GKE·Artifact Registry·Budgets·CI 연합) | `terraform/environments/gcp/dev` | 코드 있음, 미적용 ([infra-1-gcp](specs/infra-1-gcp-foundation.md)) |
+| 고정 진입점 Envoy + 관측(Prometheus·Grafana) | `entrypoint/`, `terraform/environments/gcp/dev/entrypoint.tf` | 코드 있음, 로컬 e2e 통과 (이슈 #5·#9) |
 | 온프레 k3s | — | 이슈 #2 (11/2 회의: 일단 범위 밖) |
 | 이전 엔진 (프록시·복제·롤백) | — | 이슈 #5~#8 |
 
@@ -39,6 +40,7 @@ Terraform 1.16.4 · AWS provider ~> 6.67.0 · Google provider ~> 8.9.0 · tflint
 
 ```text
 terraform/{bootstrap,environments,modules}/
+entrypoint/     # 고정 진입점 Envoy·가중치 API·관측 스택 (VM 에 그대로 올라간다)
 contracts/      # 다른 파트와의 출력값 계약
 specs/          # 작업 SPEC
 scripts/        # check.sh

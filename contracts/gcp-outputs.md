@@ -16,7 +16,16 @@
 | `ci_plan_service_account` | GitHub Actions `google-github-actions/auth` | `echo-dev-ci-plan@…` | 코드 (11/2) |
 | `ci_workload_identity_provider` | GitHub Actions `google-github-actions/auth` | `projects/…/providers/github` | 코드 (11/2) |
 
-고정 진입점(Envoy)·관측 출력값은 `entrypoint.tf` 가 들어오면 여기에 더한다.
+## 고정 진입점 (Envoy VM, `entrypoint.tf`)
+
+| 출력값 | 받는 쪽 | 예 | 상태 |
+|---|---|---|---|
+| `entrypoint_ip` | **도영(Cloudflare DNS)**: `*.echoport.uk` 고객 앱 주소를 이 IP 로 | `34.x.x.x` | 코드 (11/2) |
+| `entrypoint_weights_url` | echo-was 실행기(트래픽 전환 10→50→100): `PUT /weights {"aws":90,"gcp":10}`, Bearer 토큰 | `http://<ip>:8080` | 코드 (11/2) |
+| `entrypoint_token_secret` | 운영자: `gcloud secrets versions access latest --secret=<값>` | `echo-dev-entry-weights-token` | 코드 (11/2) |
+| `entrypoint_grafana_url` | 데모 근거 화면(환경별 요청 수·5xx·p95·가중치·healthy 수) | `http://<ip>:3000` | 코드 (11/2) |
+
+업스트림(`entrypoint_upstreams`)은 환경별 인그레스 `host:port` 다(AWS ALB, GKE 인그레스). 각 환경 인그레스는 환경별 주소뿐 아니라 고정 호스트 `{서비스}.echoport.uk` 도 받아야 한다(Host 헤더를 그대로 넘긴다). 동작 원리와 로컬 실행은 [entrypoint/README.md](../entrypoint/README.md).
 
 bootstrap 출력값: `state_bucket`(GCP 루트의 `backend.hcl`), `region`.
 

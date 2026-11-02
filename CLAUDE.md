@@ -36,6 +36,7 @@ terraform/
 ├─ environments/aws/dev/       # AWS 환경 루트 (VPC·EKS·ECR·Budgets·CI 역할)
 ├─ environments/gcp/dev/       # GCP 환경 루트 (VPC·NAT·GKE·Artifact Registry·Budgets·CI 연합)
 └─ modules/                    # 재사용 모듈 (필요할 때)
+entrypoint/                # 고정 진입점 Envoy·weights-api·Prometheus·Grafana (entrypoint.tf 가 VM 에 싣는다)
 contracts/                 # 다른 파트와의 출력값 계약
 specs/                     # 작업 SPEC
 scripts/check.sh           # fmt → validate → tflint

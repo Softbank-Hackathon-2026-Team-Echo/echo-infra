@@ -90,6 +90,6 @@ GCP 서울(asia-northeast3)에 대피처 1(GKE)을 Terraform 으로 세운다. �
 ## 10. 남은 것
 
 - 적용(위 8).
-- `entrypoint.tf`(Envoy VM·관측) 출력값을 계약에 추가.
+- 진입점 업스트림(`entrypoint_upstreams`)을 실제 AWS ALB·GKE 인그레스 주소로 바꾸고, Cloudflare `*.echoport.uk` 를 `entrypoint_ip` 로(도영).
 - ECR → AR 복사 workflow, Argo CD 클러스터 등록(#3).
 - 도쿄 state 사본을 GCS 에 두는 방법(§5-1).
