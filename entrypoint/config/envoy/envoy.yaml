@@ -1,0 +1,71 @@
+# 고정 진입점 Envoy 부트스트랩. 여기에는 리스너·admin 만 두고,
+# 클러스터(CDS)·라우트(RDS)는 /etc/envoy/dynamic 의 파일을 읽는다. weights-api 가 그 파일을 쓴다.
+# 파일을 같은 디렉터리에서 rename 하면(IN_MOVED_TO) Envoy 가 다시 읽는다 → 재시작 없이 가중치가 바뀐다.
+node:
+  id: entrypoint
+  cluster: echo-entry
+
+admin:
+  # Prometheus 가 도커 네트워크에서 긁어야 하므로 0.0.0.0. 호스트 밖 노출은 compose 와 방화벽이 막는다.
+  address:
+    socket_address: { address: 0.0.0.0, port_value: 9901 }
+
+# 동시 다운스트림 연결 상한. e2-small 에서 터지지 않게 보수적으로 잡는다.
+overload_manager:
+  resource_monitors:
+    - name: envoy.resource_monitors.global_downstream_max_connections
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.resource_monitors.downstream_connections.v3.DownstreamConnectionsConfig
+        max_active_downstream_connections: 5000
+
+dynamic_resources:
+  cds_config:
+    path_config_source:
+      path: /etc/envoy/dynamic/clusters.yaml
+      watched_directory:
+        path: /etc/envoy/dynamic
+
+static_resources:
+  listeners:
+    - name: http
+      address:
+        socket_address: { address: 0.0.0.0, port_value: 80 }
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress_http
+                codec_type: AUTO
+                use_remote_address: true
+                # Cloudflare 프록시 뒤에 두면 xff_num_trusted_hops: 1 로 올린다.
+                xff_num_trusted_hops: 0
+                rds:
+                  route_config_name: echo_routes
+                  config_source:
+                    path_config_source:
+                      path: /etc/envoy/dynamic/routes.yaml
+                      watched_directory:
+                        path: /etc/envoy/dynamic
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+                access_log:
+                  - name: envoy.access_loggers.stdout
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                      log_format:
+                        json_format:
+                          ts: "%START_TIME%"
+                          method: "%REQ(:METHOD)%"
+                          host: "%REQ(:AUTHORITY)%"
+                          path: "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+                          status: "%RESPONSE_CODE%"
+                          flags: "%RESPONSE_FLAGS%"
+                          duration_ms: "%DURATION%"
+                          upstream_cluster: "%UPSTREAM_CLUSTER%"
+                          upstream_host: "%UPSTREAM_HOST%"
+                          client: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
+    # 443/TLS 리스너 자리. 지금은 Cloudflare 프록시가 TLS 를 끝내고 80 으로 보낸다.
+    # 직접 TLS 를 받게 되면 여기 listener 를 추가하고 transport_socket 에 인증서를 건다.

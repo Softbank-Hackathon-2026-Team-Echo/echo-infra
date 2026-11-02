@@ -1,0 +1,65 @@
+# 고정 진입점 한 벌: envoy(80) · weights-api(8080) · prometheus(9090) · grafana(3000).
+# 로컬: cp .env.example .env 후 docker compose up -d --build. VM: startup 스크립트가 같은 명령을 돈다.
+services:
+  weights-api:
+    build: ./weights-api
+    image: echo-entry-weights-api:local
+    restart: unless-stopped
+    environment:
+      WEIGHTS_TOKEN: ${WEIGHTS_TOKEN:?WEIGHTS_TOKEN 을 .env 에 넣는다}
+      UPSTREAMS: ${UPSTREAMS:?UPSTREAMS 를 .env 에 넣는다 (aws=host:port,gcp=host:port)}
+      DEFAULT_WEIGHTS: ${DEFAULT_WEIGHTS:-aws=100,gcp=0}
+      ENVOY_ADMIN: http://envoy:9901
+      HC_PATH: ${HC_PATH:-/healthz}
+    volumes:
+      - envoy-dynamic:/etc/envoy/dynamic
+    ports:
+      - "${WEIGHTS_API_PORT:-8080}:8080"
+
+  envoy:
+    image: envoyproxy/envoy:v1.39.6
+    restart: unless-stopped
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+    volumes:
+      - ./config/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - envoy-dynamic:/etc/envoy/dynamic:ro
+    ports:
+      - "${ENTRY_HTTP_PORT:-80}:80"
+      # admin 은 호스트 안에서만 (quitquitquit 등 변경 API 가 있다). Prometheus 는 도커 네트워크로 긁는다.
+      - "127.0.0.1:9901:9901"
+    depends_on:
+      weights-api:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d"]
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
+  grafana:
+    image: grafana/grafana:13.2.5
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD 를 .env 에 넣는다}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  envoy-dynamic:
+  prom-data:
+  grafana-data:

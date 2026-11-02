@@ -1,0 +1,12 @@
+# 복사해서 terraform.tfvars 로 쓴다 (terraform.tfvars 는 커밋하지 않는다).
+state_bucket = "echo-tfstate-<account_id>"
+
+eks_admin_principal_arns = [
+  "arn:aws:iam::<account_id>:user/<이름>",
+]
+
+# 장소 IP 가 정해지면 좁힌다
+# eks_public_access_cidrs = ["203.0.113.0/24"]
+
+budget_limit_usd           = 150
+budget_notification_emails = ["<팀 메일>"]
