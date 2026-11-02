@@ -1,0 +1,2 @@
+# 복사해서 terraform.tfvars 로 쓴다 (terraform.tfvars 는 커밋하지 않는다).
+project_id = "<gcp-project-id>"
