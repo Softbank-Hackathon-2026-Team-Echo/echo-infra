@@ -82,6 +82,26 @@ resource "google_container_cluster" "this" {
     }
   }
 
+  # echo-was 는 값 자체를 Terraform state 에 두지 않는다. Secret Manager CSI 와
+  # SecretSync CRD 로 Secret Manager 값을 파드의 파일·Kubernetes Secret 으로 전달한다.
+  secret_manager_config {
+    enabled = true
+
+    rotation_config {
+      enabled           = true
+      rotation_interval = "120s"
+    }
+  }
+
+  secret_sync_config {
+    enabled = true
+
+    rotation_config {
+      enabled           = true
+      rotation_interval = "120s"
+    }
+  }
+
   # make down 으로 지울 수 있어야 한다 (NFR-16, 해커톤 dev)
   deletion_protection = false
 

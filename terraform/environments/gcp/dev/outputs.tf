@@ -75,3 +75,33 @@ output "entrypoint_token_secret" {
   description = "gcloud secrets versions access latest --secret=<이 값>"
   value       = google_secret_manager_secret.entry["weights-token"].secret_id
 }
+
+# 관제탑 (echo-was)
+
+output "control_plane_ip" {
+  description = "Cloudflare api.echoport.uk A 레코드가 가리킬 GKE Ingress 고정 IP"
+  value       = google_compute_global_address.control_plane.address
+}
+
+output "control_plane_certificate_name" {
+  description = "GKE Ingress ingress.gcp.kubernetes.io/pre-shared-cert annotation 값"
+  value       = google_compute_managed_ssl_certificate.control_plane.name
+}
+
+output "control_plane_service_account" {
+  description = "echo-was KSA 가 Workload Identity 로 사용할 GSA 이메일"
+  value       = google_service_account.control_plane.email
+}
+
+output "control_plane_kubernetes_identity" {
+  description = "API 담당이 만들 namespace 와 Kubernetes ServiceAccount"
+  value = {
+    namespace       = local.control_plane_namespace
+    service_account = local.control_plane_ksa
+  }
+}
+
+output "control_plane_secret_ids" {
+  description = "값을 추가한 뒤 SecretSync 로 echo-was 파드에 전달할 Secret Manager ID"
+  value       = { for key, secret in google_secret_manager_secret.control_plane : key => secret.secret_id }
+}

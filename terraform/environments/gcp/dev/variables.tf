@@ -166,3 +166,16 @@ variable "entrypoint_admin_cidrs" {
   type        = list(string)
   default     = []
 }
+
+# 관제탑 (echo-was)
+
+variable "control_plane_domain" {
+  description = "GCP GKE 에 올릴 echo-was API 공개 도메인"
+  type        = string
+  default     = "api.echoport.uk"
+
+  validation {
+    condition     = can(regex("^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$", var.control_plane_domain))
+    error_message = "control_plane_domain 은 소문자 DNS 이름이어야 한다."
+  }
+}
