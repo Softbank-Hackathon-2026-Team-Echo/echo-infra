@@ -5,7 +5,7 @@ Envoy 가 읽는 파일 기반 xDS(/etc/envoy/dynamic/clusters.yaml·routes.yaml
 표준 라이브러리만 쓴다. echo-was 실행기가 PUT /weights 로 트래픽 비율을 옮긴다.
 
   GET  /health            살아 있나 (토큰 없이)
-  GET  /metrics           Prometheus 형식: 현재 가중치, 환경별 healthy 호스트 수 (토큰 없이, 내부망)
+  GET  /metrics           Prometheus 형식: 현재 가중치 (토큰 없이, 내부망). healthy 호스트 수는 Envoy 가 직접 낸다
   GET  /weights           현재 가중치 {"aws": 90, "gcp": 10}
   PUT  /weights           가중치 변경. 모든 환경 키, 0~100 정수, 합 100
   GET  /status            가중치 + Envoy admin 에서 본 환경별 호스트·healthy 수
@@ -36,8 +36,8 @@ ENVOY_ADMIN = os.environ.get("ENVOY_ADMIN", "http://envoy:9901").rstrip("/")
 HC_PATH = os.environ.get("HC_PATH", "/healthz")
 LISTEN_PORT = int(os.environ.get("PORT", "8080"))
 
-LOCK = threading.Lock()
-READY = threading.Event()
+LOCK = threading.Lock()  # 쓰기(PUT)만 직렬화한다. 읽기는 CURRENT 를 통째로 바꾸므로 잠그지 않는다
+CURRENT = {}  # 현재 가중치. seed()·apply_weights() 만 바꾼다. 파일은 재시작 복구용
 
 
 def log(**kv):
@@ -93,18 +93,26 @@ def validate_weights(obj):
 
 # ---------- Envoy 파일 렌더링 ----------
 
+def fallback_chain(env):
+    """env 가 건강하면 env, 아니면 나머지 환경 순서대로. 예: [aws, gcp]"""
+    return [env] + [e for e in ENVS if e != env]
+
+
 def fallback_name(env):
-    """env 가 건강하면 env, 아니면 나머지 환경 순서대로. 예: aws_then_gcp"""
-    others = [e for e in ENVS if e != env]
-    return "_then_".join([env] + others) if others else env
+    """aggregate 클러스터 이름. 예: aws_then_gcp"""
+    return "_then_".join(fallback_chain(env))
 
 
-def render_clusters():
-    lines = [
-        "# weights-api 가 만든 파일. 손으로 고치지 않는다 (UPSTREAMS 환경 변수를 바꾼다).",
+def xds_header(note):
+    return [
+        f"# weights-api 가 만든 파일. 손으로 고치지 않는다 ({note}).",
         f'version_info: "{int(time.time() * 1000)}"',
         "resources:",
     ]
+
+
+def render_clusters():
+    lines = xds_header("UPSTREAMS 환경 변수를 바꾼다")
     for env in ENVS:
         host, port = UPSTREAMS[env].rsplit(":", 1)
         lines += [
@@ -140,7 +148,6 @@ def render_clusters():
             "      max_ejection_percent: 100",
         ]
     for env in ENVS:
-        chain = [env] + [e for e in ENVS if e != env]
         lines += [
             '  - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster',
             f"    name: {fallback_name(env)}",
@@ -152,16 +159,13 @@ def render_clusters():
             "      name: envoy.clusters.aggregate",
             "      typed_config:",
             '        "@type": type.googleapis.com/envoy.extensions.clusters.aggregate.v3.ClusterConfig',
-            f"        clusters: [{', '.join(chain)}]",
+            f"        clusters: [{', '.join(fallback_chain(env))}]",
         ]
     return "\n".join(lines) + "\n"
 
 
 def render_routes(weights):
-    lines = [
-        "# weights-api 가 만든 파일. 손으로 고치지 않는다 (PUT /weights).",
-        f'version_info: "{int(time.time() * 1000)}"',
-        "resources:",
+    lines = xds_header("PUT /weights") + [
         '  - "@type": type.googleapis.com/envoy.config.route.v3.RouteConfiguration',
         "    name: echo_routes",
         "    virtual_hosts:",
@@ -203,7 +207,8 @@ def write_atomic(path, text):
     os.replace(tmp, path)  # 같은 디렉터리 안 rename → Envoy watched_directory 가 감지
 
 
-def load_weights():
+def load_saved_weights():
+    """재시작 복구용. 저장된 값이 없거나 깨졌으면 기본값."""
     try:
         with open(STATE_PATH, encoding="utf-8") as f:
             return validate_weights(json.load(f))
@@ -215,18 +220,17 @@ def load_weights():
 
 
 def apply_weights(weights):
-    os.makedirs(STATE_DIR, exist_ok=True)
+    global CURRENT
     write_atomic(STATE_PATH, json.dumps(weights))
     write_atomic(os.path.join(DYNAMIC_DIR, "routes.yaml"), render_routes(weights))
+    CURRENT = dict(weights)
 
 
 def seed():
     os.makedirs(STATE_DIR, exist_ok=True)
     write_atomic(os.path.join(DYNAMIC_DIR, "clusters.yaml"), render_clusters())
-    weights = load_weights()
-    apply_weights(weights)
-    log(msg="seeded", upstreams=UPSTREAMS, weights=weights)
-    READY.set()
+    apply_weights(load_saved_weights())
+    log(msg="seeded", upstreams=UPSTREAMS, weights=CURRENT)
 
 
 # ---------- Envoy admin ----------
@@ -263,10 +267,10 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # 기본 stderr 로그 대신 JSON
         log(method=self.command, path=self.path, status=args[1] if len(args) > 1 else None, client=self.client_address[0])
 
-    def _send(self, status, body, content_type="application/json"):
+    def _send(self, status, body, content_type=None):
         raw = body.encode("utf-8") if isinstance(body, str) else json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
-        self.send_header("Content-Type", content_type if isinstance(body, str) else "application/json; charset=utf-8")
+        self.send_header("Content-Type", content_type or "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
@@ -283,22 +287,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            return self._send(200 if READY.is_set() else 503, {"ready": READY.is_set()})
+            return self._send(200, {"ready": True})  # seed() 가 끝나야 서버가 뜬다
         if self.path == "/metrics":
             return self._send(200, self._metrics(), "text/plain; version=0.0.4; charset=utf-8")
         if self.path == "/weights":
             if not self._authorized():
                 return
-            with LOCK:
-                return self._send(200, load_weights())
+            return self._send(200, dict(CURRENT))
         if self.path == "/status":
             if not self._authorized():
                 return
-            with LOCK:
-                weights = load_weights()
             health = envoy_cluster_health()
             return self._send(200, {
-                "weights": weights,
+                "weights": dict(CURRENT),
                 "upstreams": {env: {"address": UPSTREAMS[env], **((health or {}).get(env, {"hosts": None, "healthy": None}))} for env in ENVS},
                 "envoy": "ok" if health is not None else "unreachable",
             })
@@ -316,20 +317,14 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError) as e:
             return self._send(400, {"error": str(e)})
         with LOCK:
-            before = load_weights()
+            before = dict(CURRENT)
             apply_weights(weights)
         log(msg="weights changed", before=before, after=weights, client=self.client_address[0])
         self._send(200, weights)
 
     def _metrics(self):
-        with LOCK:
-            weights = load_weights()
-        health = envoy_cluster_health() or {}
         out = ["# HELP entrypoint_weight 환경별 트래픽 가중치 (0~100)", "# TYPE entrypoint_weight gauge"]
-        out += [f'entrypoint_weight{{env="{env}"}} {weights[env]}' for env in ENVS]
-        out += ["# HELP entrypoint_upstream_healthy_hosts Envoy 가 본 환경별 healthy 호스트 수", "# TYPE entrypoint_upstream_healthy_hosts gauge"]
-        out += [f'entrypoint_upstream_healthy_hosts{{env="{env}"}} {health.get(env, {}).get("healthy", 0)}' for env in ENVS]
-        out += ["# HELP entrypoint_envoy_up Envoy admin 응답 여부", "# TYPE entrypoint_envoy_up gauge", f"entrypoint_envoy_up {1 if health else 0}"]
+        out += [f'entrypoint_weight{{env="{env}"}} {w}' for env, w in CURRENT.items()]
         return "\n".join(out) + "\n"
 
 
