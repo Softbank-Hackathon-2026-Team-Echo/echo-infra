@@ -56,9 +56,9 @@ variable "eks_admin_principal_arns" {
 }
 
 variable "node_instance_types" {
-  description = "관리형 노드 그룹 인스턴스 타입"
+  description = "관리형 노드 그룹 인스턴스 타입. 계정이 AWS 무료 플랜이라 free-tier-eligible 타입만 뜬다 (t3.large 는 RunInstances 거부)"
   type        = list(string)
-  default     = ["t3.large"]
+  default     = ["m7i-flex.large"]
 }
 
 variable "node_desired_size" {
