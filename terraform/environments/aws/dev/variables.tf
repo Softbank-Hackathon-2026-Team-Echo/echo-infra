@@ -75,3 +75,38 @@ variable "node_max_size" {
   type    = number
   default = 3
 }
+
+# ECR
+
+variable "ecr_repositories" {
+  description = "만들 ECR 저장소 이름 (echo/<이름>)"
+  type        = list(string)
+  default     = ["app"]
+}
+
+# 비용 알림
+
+variable "budget_limit_usd" {
+  description = "월 비용 알림 금액(USD). NFR-13 ₩500,000 을 AWS·GCP 로 어떻게 나눌지는 팀 결정"
+  type        = number
+  default     = 150
+}
+
+variable "budget_notification_emails" {
+  description = "비용 알림을 받을 메일. 비어 있으면 알림 없이 예산만 만든다"
+  type        = list(string)
+  default     = []
+}
+
+# CI
+
+variable "github_repository" {
+  description = "plan 용 OIDC 역할을 받을 GitHub 저장소 (owner/name)"
+  type        = string
+  default     = "Softbank-Hackathon-2026-Team-Echo/echo-infra"
+}
+
+variable "state_bucket" {
+  description = "terraform/bootstrap/aws 의 state_bucket 출력값. CI 역할에 읽기·잠금 권한을 준다"
+  type        = string
+}
