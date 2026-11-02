@@ -24,6 +24,7 @@ flowchart LR
 | AWS 환경 (VPC·EKS·ECR·Budgets·CI 역할) | `terraform/environments/aws/dev` | 적용 (11/2, [infra-1](specs/infra-1-aws-foundation.md)) |
 | GCP state 버킷 | `terraform/bootstrap/gcp` | 적용 (11/2) |
 | GCP 환경 (VPC·NAT·GKE·Artifact Registry·Budgets·CI 연합) | `terraform/environments/gcp/dev` | 적용 (11/2, [infra-1-gcp](specs/infra-1-gcp-foundation.md)) |
+| 실행기 자격 증명 (빌드: OIDC·WIF, 배포: GSA → GKE·EKS) | `aws/dev/ci.tf`, `gcp/dev/ci.tf`, [contracts/executor-credentials.md](contracts/executor-credentials.md) | 코드 있음, plan 확인 (이슈 #3) |
 | 고정 진입점 Envoy + 관측(Prometheus·Grafana) | `entrypoint/`, `terraform/environments/gcp/dev/entrypoint.tf` | 코드 있음, 로컬 e2e 통과 (이슈 #5·#9) |
 | GCP 관제탑 기반 (echo-was GSA·비밀·IP·TLS) | `terraform/environments/gcp/dev/control-plane.tf` | 코드·plan 완료, apply 전 ([infra-15](specs/infra-15-gcp-control-plane-foundation.md)) |
 | 온프레 k3s | — | 이슈 #2 (11/2 회의: 일단 범위 밖) |
