@@ -14,7 +14,13 @@ resource "aws_iam_role" "ci_plan" {
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
-        StringLike   = { "token.actions.githubusercontent.com:sub" = "repo:${var.github_repository}:*" }
+        # main 브랜치와 PR 에서만 받는다. 다른 브랜치 push 로는 역할을 못 받는다.
+        StringLike = {
+          "token.actions.githubusercontent.com:sub" = [
+            "repo:${var.github_repository}:ref:refs/heads/main",
+            "repo:${var.github_repository}:pull_request",
+          ]
+        }
       }
     }]
   })
