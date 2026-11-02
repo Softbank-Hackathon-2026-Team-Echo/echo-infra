@@ -4,7 +4,7 @@
 
 | 출력값 | 받는 쪽 | 예 | 상태 |
 |---|---|---|---|
-| `region` | echo-was `AwsEnvironmentConfig.region` | `ap-northeast-2` | 예정 |
+| `region` | echo-was `AwsEnvironmentConfig.region` | `ap-northeast-1` | 예정 |
 | `eks_cluster_name` | echo-was `AwsEnvironmentConfig.cluster_name`, Argo CD | `echo-dev-eks` | 예정 |
 | `eks_cluster_endpoint` | Argo CD, AI 에이전트(읽기) | `https://…eks.amazonaws.com` | 예정 |
 | `vpc_id` | 앱·이전 엔진 | `vpc-…` | 예정 |

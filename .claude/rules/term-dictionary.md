@@ -9,7 +9,7 @@
 |---|---|---|---|
 | 환경 | Environment | 배포 대상 클러스터 하나. AWS 는 EKS 클러스터 | F2 |
 | 환경 종류 | Environment kind | `aws`·`gcp`·`onprem` | F2, NFR-15 |
-| aws 환경 설정 | AwsEnvironmentConfig | `region`(`ap-northeast-2`), `cluster_name` → Terraform 출력값 `region`·`eks_cluster_name` | F2 |
+| aws 환경 설정 | AwsEnvironmentConfig | `region`(이 저장소 값 `ap-northeast-1`), `cluster_name` → Terraform 출력값 `region`·`eks_cluster_name` | F2 |
 | 비밀 참조 | secretRef | `aws-sm:<이름|ARN>` = Secrets Manager | NFR-17 |
 
 ## 인프라 파트 용어

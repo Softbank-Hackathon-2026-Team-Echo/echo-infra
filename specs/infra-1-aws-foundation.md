@@ -21,6 +21,10 @@ AWS 에 서비스가 처음 도는 환경(EKS 클러스터 하나)을 Terraform 
   - secretRef `aws-sm:<이름|ARN>` 예약.
   - 프로브 `/healthz`·`/readyz`. 마이그레이션 실행 방식은 "인프라 파트와 정한다"(Job 1회 실행).
 - 이슈 #11(재구축 리허설): 환경 하나를 명령 2개 이내로 다시 세운다(NFR-16). 이 SPEC 의 구조가 그 전제가 된다.
+- 11/1 팀 회의(2부)
+  - 시나리오는 **AWS 일본 리전 → GCP 서울 리전** 이전. 온프레(K3s)도 필수 범위.
+  - 역할: 인프라 초기 세팅 = 서동옥, **세팅 후 월·화(11/2~3)까지 이도현 님(데이터 백업·이전)께 전달.** 보안·AI 에이전트 = 김형래.
+  - 모든 리전에 같은 백업 전략(지역별 차등 없음). 테스트 필수, 자기 파트는 리뷰 없이 머지.
 - 참고: 예선 `iris-infra`@`8b4e2a8` 에 같은 계열 구성(S3 state·OIDC·VPC·EKS 2개·RDS)이 있다. LICENSE 가 없어 코드는 허락 뒤에만 가져온다([docs/references.md](../docs/references.md)).
 
 ## 3. 범위
@@ -41,7 +45,7 @@ AWS 에 서비스가 처음 도는 환경(EKS 클러스터 하나)을 Terraform 
 
 - GKE·온프레 k3s (이슈 #1 GCP 절반, #2)
 - Argo CD·빌드 파이프라인 (#3)
-- 관리 대상 앱과 PostgreSQL 위치 (#4). **DB 를 RDS 로 할지 클러스터 안에 둘지는 #4·#7 담당이 정한다.** RDS 로 정해지면 RDS 와 논리 복제 파라미터는 이 저장소에 별도 이슈로 더한다.
+- 관리 대상 앱과 PostgreSQL 위치 (#4). **DB 를 RDS 로 할지 클러스터 안에 둘지는 데이터 백업·이전 담당(이도현)이 정한다.** RDS 로 정해지면 RDS 와 논리 복제 파라미터는 이 저장소에 별도 이슈로 더한다.
 - Envoy 프록시·트래픽 전환·복제·롤백 (#5~#8)
 - OTel 수집기 (#9)
 - AI 샌드박스 네임스페이스·권한 (echo-ai-agent #2·#3 에서 요청이 오면 별도 이슈)
@@ -52,7 +56,7 @@ AWS 에 서비스가 처음 도는 환경(EKS 클러스터 하나)을 Terraform 
 |---|---|---|
 | state 버킷 | `terraform/bootstrap/aws` | `echo-tfstate-<account_id>`. 다른 루트는 `use_lockfile` 로 잠금 |
 | 비용 알림 | `environments/aws/dev/budget.tf` | 월 비용 알림. 받는 메일은 변수 |
-| 네트워크 | `environments/aws/dev/network.tf` | VPC `10.50.0.0/16`(GCP·온프레 CIDR 과 겹치지 않게 GCP 담당과 확인), AZ `2a`·`2c` |
+| 네트워크 | `environments/aws/dev/network.tf` | VPC `10.50.0.0/16`(GCP 서울·온프레 K3s CIDR 과 겹치지 않게 이도현 님과 확인), AZ `1a`·`1c` |
 | EKS | `environments/aws/dev/eks.tf` | 클러스터 1개, 노드 2대, API 공개 엔드포인트 + 허용 CIDR, 인증 모드 API(Access Entry) |
 | ECR | `environments/aws/dev/ecr.tf` | `IMMUTABLE` 태그, 푸시 시 스캔 |
 | CI 역할 | `environments/aws/dev/ci.tf` | GitHub OIDC, 이 저장소 `main`·PR 에서 plan |
@@ -98,11 +102,11 @@ flowchart LR
 
 | 출력값 | 받는 쪽 | 예 |
 |---|---|---|
-| `region` | echo-was `AwsEnvironmentConfig.region` | `ap-northeast-2` |
+| `region` | echo-was `AwsEnvironmentConfig.region` | `ap-northeast-1` |
 | `eks_cluster_name` | echo-was `AwsEnvironmentConfig.cluster_name`, #3 Argo CD | `echo-dev-eks` |
 | `eks_cluster_endpoint` | #3, AI 에이전트(읽기) | `https://…eks.amazonaws.com` |
 | `vpc_id`·`vpc_cidr`·`private_subnet_ids` | #4(DB 위치 결정 시), #5·#7(복제·VPN) | `10.50.0.0/16` |
-| `ecr_repository_urls` | #3 빌드·배포, #4 앱 | `…dkr.ecr.ap-northeast-2.amazonaws.com/echo/app` |
+| `ecr_repository_urls` | #3 빌드·배포, #4 앱 | `…dkr.ecr.ap-northeast-1.amazonaws.com/echo/app` |
 
 ## 9. 호환성·배포·복구
 
@@ -126,7 +130,7 @@ flowchart LR
 |---|---|
 | state 버킷 | `echo-tfstate-<account_id>` |
 | EKS 클러스터 | `echo-dev-eks` |
-| echo-was 환경 이름 | `aws-seoul` |
+| echo-was 환경 이름 | `aws-tokyo` |
 | ECR 저장소 | `echo/<service>` |
 
 ## 12. 리스크 (사전 부검)
@@ -145,7 +149,7 @@ flowchart LR
 2. **EKS 1개 (제안)**: 예선 iris-infra 는 관리용·앱용 2개였다. 해커톤 기간 비용과 구축 시간 때문에 1개로 한다. 버린 이유: 권한 격리 이점이 본선 범위에서 비용보다 작다.
 3. **NAT 1개 (제안)**: AZ 마다 1개면 AZ 장애에 강하지만 비용이 두 배다. 본선 기간에는 1개.
 4. **EKS API 공개 엔드포인트 + 허용 CIDR (제안)**: private + SSM 터널(iris-infra)은 안전하지만 5명이 붙기까지 시간이 든다.
-5. **리전 `ap-northeast-2` (제안)**: echo-was 예시와 같고 본선 장소(서울)와 가깝다.
+5. **리전 `ap-northeast-1` 도쿄 (일본 리전은 11/1 회의 확정, 도쿄는 제안)**: 시나리오가 "AWS 일본 리전 → GCP 서울"이다. 오사카(`ap-northeast-3`)보다 서비스·쿼터 선택지가 넓다.
 
 ## 14. 구현에 위임한 세부사항
 

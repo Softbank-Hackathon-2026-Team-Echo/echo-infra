@@ -23,7 +23,7 @@ terraform/
 ## 3. 이름과 태그
 
 - 리소스 이름 접두어는 `var.project`(`echo`). 사람이 읽는 이름은 `<project>-<env>-<역할>`(`echo-dev-eks`).
-- 환경 이름은 RFC 1123 label 로 echo-was 환경 이름과 맞춘다(`aws-seoul`).
+- 환경 이름은 RFC 1123 label 로 echo-was 환경 이름과 맞춘다(`aws-tokyo`).
 - 모든 리소스는 provider `default_tags` 로 `project`·`env`·`managed-by`·`repo` 태그를 받는다.
 
 ## 4. 비밀값
