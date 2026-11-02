@@ -1,7 +1,12 @@
-# GitHub Actions 가 장기 키 없이 plan 을 돌리는 역할. apply 권한은 주지 않는다.
+# GitHub Actions 와 실행기가 장기 키 없이 쓰는 자격 증명. 절차와 받는 쪽은 contracts/executor-credentials.md.
 resource "aws_iam_openid_connect_provider" "github" {
   url            = "https://token.actions.githubusercontent.com"
   client_id_list = ["sts.amazonaws.com"]
+}
+
+# 어떤 GitHub 저장소가 어떤 역할을 받는지는 두 클라우드가 같은 목록을 본다.
+module "github" {
+  source = "../../../modules/github-repos"
 }
 
 # state 버킷 이름은 terraform/bootstrap/aws 와 같은 규칙으로 계산한다 (tfvars 에 다시 적지 않는다).
@@ -10,39 +15,34 @@ data "aws_caller_identity" "current" {}
 locals {
   state_bucket = "${var.project}-tfstate-${data.aws_caller_identity.current.account_id}"
 
-  # GitHub OIDC sub 는 두 형식이 온다: 이름 형식 repo:ORG/NAME:... 과 불변 ID 형식 repo:ORG@<id>/NAME@<id>:... (2026-11 조직 저장소에서 확인).
+  # GitHub OIDC sub 는 두 형식이 온다: 이름 형식 repo:ORG/NAME:… 과 불변 ID 형식 repo:ORG@<id>/NAME@<id>:… (2026-11 조직 저장소에서 확인).
   # 둘 다 허용한다. ID 는 와일드카드로 두되 조직·저장소 이름은 고정한다.
-  github_sub = { for r in distinct(concat([var.github_repository], var.ci_build_repositories)) : r => {
-    main = [
-      "repo:${r}:ref:refs/heads/main",
-      "repo:${split("/", r)[0]}@*/${split("/", r)[1]}@*:ref:refs/heads/main",
-    ]
-    plan = [
-      "repo:${r}:ref:refs/heads/main",
-      "repo:${r}:pull_request",
-      "repo:${split("/", r)[0]}@*/${split("/", r)[1]}@*:ref:refs/heads/main",
-      "repo:${split("/", r)[0]}@*/${split("/", r)[1]}@*:pull_request",
-    ]
-  } }
+  github_sub_prefix = { for r in distinct(concat([module.github.plan_repository], module.github.build_repositories)) :
+    r => ["repo:${r}", "repo:${replace(r, "/", "@*/")}@*"]
+  }
+
+  # 신뢰 정책은 sub 목록만 다르다.
+  github_trust = { for k, subs in {
+    plan  = flatten([for p in local.github_sub_prefix[module.github.plan_repository] : ["${p}:ref:refs/heads/main", "${p}:pull_request"]])
+    build = flatten([for r in module.github.build_repositories : [for p in local.github_sub_prefix[r] : "${p}:ref:refs/heads/main"]])
+    } : k => jsonencode({
+      Version = "2012-10-17"
+      Statement = [{
+        Effect    = "Allow"
+        Principal = { Federated = aws_iam_openid_connect_provider.github.arn }
+        Action    = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
+          StringLike   = { "token.actions.githubusercontent.com:sub" = subs }
+        }
+      }]
+  }) }
 }
 
+# ---------- plan: echo-infra 저장소 main·PR, 읽기 전용 ----------
 resource "aws_iam_role" "ci_plan" {
-  name = "${local.name}-ci-plan"
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Federated = aws_iam_openid_connect_provider.github.arn }
-      Action    = "sts:AssumeRoleWithWebIdentity"
-      Condition = {
-        StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
-        # main 브랜치와 PR 에서만 받는다. 다른 브랜치 push 로는 역할을 못 받는다.
-        StringLike = {
-          "token.actions.githubusercontent.com:sub" = local.github_sub[var.github_repository].plan
-        }
-      }
-    }]
-  })
+  name               = "${local.name}-ci-plan"
+  assume_role_policy = local.github_trust.plan
 }
 
 resource "aws_iam_role_policy_attachment" "ci_plan_read" {
@@ -76,24 +76,10 @@ resource "aws_iam_role_policy" "ci_plan_state" {
   })
 }
 
-# ---------- 빌드 실행기: GitHub Actions → ECR push ----------
-# echo-was 저장소의 main 브랜치 워크플로만 받는다. 같은 digest 를 GCP Artifact Registry 에도 넣는다(gcp 루트 ci_build).
+# ---------- 빌드 실행기: 빌드 저장소 main 의 GitHub Actions → ECR push ----------
 resource "aws_iam_role" "ci_build" {
-  name = "${local.name}-ci-build"
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Federated = aws_iam_openid_connect_provider.github.arn }
-      Action    = "sts:AssumeRoleWithWebIdentity"
-      Condition = {
-        StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
-        StringLike = {
-          "token.actions.githubusercontent.com:sub" = flatten([for r in var.ci_build_repositories : local.github_sub[r].main])
-        }
-      }
-    }]
-  })
+  name               = "${local.name}-ci-build"
+  assume_role_policy = local.github_trust.build
 }
 
 resource "aws_iam_role_policy" "ci_build_ecr" {
@@ -126,23 +112,20 @@ resource "aws_iam_role_policy" "ci_build_ecr" {
   })
 }
 
-# ---------- 배포 실행기: GKE 위 echo-was 일꾼 → EKS ----------
-# 일꾼은 관제탑 GSA 의 Google ID 토큰(audience=sts.amazonaws.com)으로 이 역할을 받는다(AssumeRoleWithWebIdentity).
-# GKE 안에 AWS 키를 두지 않는다(NFR-17). 토큰은 GKE 메타데이터 서버 /instance/service-accounts/default/identity 에서 받는다.
+# ---------- 배포 실행기: 관제탑 GSA 의 Google ID 토큰으로 받는 역할 (contracts/executor-credentials.md §2) ----------
+# Google 공급자는 계정에 하나다. 역할이 늘어도 이 리소스는 그대로 쓴다.
 resource "aws_iam_openid_connect_provider" "google" {
-  count          = var.executor_google_service_account_id != "" ? 1 : 0
   url            = "https://accounts.google.com"
   client_id_list = ["sts.amazonaws.com"]
 }
 
 resource "aws_iam_role" "executor" {
-  count = var.executor_google_service_account_id != "" ? 1 : 0
-  name  = "${local.name}-executor"
+  name = "${local.name}-executor"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Federated = aws_iam_openid_connect_provider.google[0].arn }
+      Principal = { Federated = aws_iam_openid_connect_provider.google.arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = {
@@ -156,36 +139,57 @@ resource "aws_iam_role" "executor" {
 
 # kubeconfig 를 만들 때 클러스터 정보만 읽는다. 쿠버네티스 안 권한은 Access Entry 가 준다.
 resource "aws_iam_role_policy" "executor_eks" {
-  count = var.executor_google_service_account_id != "" ? 1 : 0
-  name  = "eks-describe"
-  role  = aws_iam_role.executor[0].id
+  name = "eks-describe"
+  role = aws_iam_role.executor.id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
       Effect   = "Allow"
-      Action   = ["eks:DescribeCluster", "eks:ListClusters"]
-      Resource = "*"
+      Action   = "eks:DescribeCluster"
+      Resource = aws_eks_cluster.this.arn
     }]
   })
 }
 
 # 실행기는 서비스마다 네임스페이스를 만들고 지우므로 클러스터 범위 관리자 정책을 준다 (해커톤 범위).
-# 좁히려면 네임스페이스 생성은 인프라가 미리 하고 AmazonEKSEditPolicy 를 네임스페이스 범위로 바꾼다.
+# GKE 쪽(container.developer)과 비대칭이다. 맞추려면 두 클러스터에 같은 ClusterRole 매니페스트를 적용하고 여기는 kubernetes_groups 만 준다.
 resource "aws_eks_access_entry" "executor" {
-  count         = var.executor_google_service_account_id != "" ? 1 : 0
   cluster_name  = aws_eks_cluster.this.name
-  principal_arn = aws_iam_role.executor[0].arn
+  principal_arn = aws_iam_role.executor.arn
 }
 
 resource "aws_eks_access_policy_association" "executor" {
-  count         = var.executor_google_service_account_id != "" ? 1 : 0
   cluster_name  = aws_eks_cluster.this.name
-  principal_arn = aws_iam_role.executor[0].arn
+  principal_arn = aws_eks_access_entry.executor.principal_arn
   policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
 
   access_scope {
     type = "cluster"
   }
+}
 
-  depends_on = [aws_eks_access_entry.executor]
+# 11/3 처음엔 변수가 비면 안 만드는 count 였다. GCP 출력값이 단일 출처라 분기를 없앴다.
+moved {
+  from = aws_iam_openid_connect_provider.google[0]
+  to   = aws_iam_openid_connect_provider.google
+}
+
+moved {
+  from = aws_iam_role.executor[0]
+  to   = aws_iam_role.executor
+}
+
+moved {
+  from = aws_iam_role_policy.executor_eks[0]
+  to   = aws_iam_role_policy.executor_eks
+}
+
+moved {
+  from = aws_eks_access_entry.executor[0]
+  to   = aws_eks_access_entry.executor
+}
+
+moved {
+  from = aws_eks_access_policy_association.executor[0]
+  to   = aws_eks_access_policy_association.executor
 }

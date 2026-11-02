@@ -40,5 +40,5 @@ output "ci_build_role_arn" {
 
 output "executor_role_arn" {
   description = "배포 실행기(GKE 위 echo-was 일꾼)가 Google ID 토큰으로 받는 역할. EKS 접근용"
-  value       = try(aws_iam_role.executor[0].arn, null)
+  value       = aws_iam_role.executor.arn
 }
