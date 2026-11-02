@@ -34,3 +34,44 @@ variable "availability_zones" {
     error_message = "AZ 는 두 개만 쓴다."
   }
 }
+
+# EKS
+
+variable "eks_version" {
+  description = "EKS 쿠버네티스 버전. 본선 기간에는 올리지 않는다"
+  type        = string
+  default     = "1.35"
+}
+
+variable "eks_public_access_cidrs" {
+  description = "EKS API 공개 엔드포인트에 붙을 수 있는 CIDR. 인증은 IAM 이 따로 한다. 장소가 정해지면 좁힌다"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "eks_admin_principal_arns" {
+  description = "EKS 클러스터 관리자 접근을 줄 IAM 사용자·역할 ARN (Access Entry)"
+  type        = list(string)
+  default     = []
+}
+
+variable "node_instance_types" {
+  description = "관리형 노드 그룹 인스턴스 타입"
+  type        = list(string)
+  default     = ["t3.large"]
+}
+
+variable "node_desired_size" {
+  type    = number
+  default = 2
+}
+
+variable "node_min_size" {
+  type    = number
+  default = 2
+}
+
+variable "node_max_size" {
+  type    = number
+  default = 3
+}
