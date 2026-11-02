@@ -54,3 +54,24 @@ output "ci_workload_identity_provider" {
   description = "GitHub Actions google-github-actions/auth 의 workload_identity_provider"
   value       = google_iam_workload_identity_pool_provider.github.name
 }
+
+# 고정 진입점
+
+output "entrypoint_ip" {
+  description = "Cloudflare 에서 *.echoport.uk 를 가리킬 고정 IP"
+  value       = google_compute_address.entry.address
+}
+
+output "entrypoint_weights_url" {
+  description = "echo-was 실행기가 부르는 가중치 API (Bearer 토큰: Secret Manager)"
+  value       = "http://${google_compute_address.entry.address}:8080"
+}
+
+output "entrypoint_grafana_url" {
+  value = "http://${google_compute_address.entry.address}:3000"
+}
+
+output "entrypoint_token_secret" {
+  description = "gcloud secrets versions access latest --secret=<이 값>"
+  value       = google_secret_manager_secret.entry["weights-token"].secret_id
+}

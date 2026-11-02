@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# 고정 진입점 VM startup 스크립트 (Terraform templatefile). 부팅마다 돈다. 멱등.
+set -euo pipefail
+ROOT=/opt/entrypoint
+export DEBIAN_FRONTEND=noninteractive
+
+log() { echo "[entrypoint-startup] $*"; }
+
+# 1. Docker (공식 저장소) + compose 플러그인
+if ! command -v docker >/dev/null 2>&1; then
+  log "docker 설치"
+  apt-get update -qq
+  apt-get install -y -qq ca-certificates curl gnupg >/dev/null
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  chmod a+r /etc/apt/keyrings/docker.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
+  apt-get update -qq
+  apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null
+  systemctl enable --now docker
+fi
+
+# 2. 설정 파일 (entrypoint/ 디렉터리 그대로)
+mkdir -p "$ROOT"
+%{ for p, c in files ~}
+mkdir -p "$(dirname "$ROOT/${p}")"
+cat > "$ROOT/${p}" <<'ECHO_ENTRY_FILE_EOF'
+${c}
+ECHO_ENTRY_FILE_EOF
+%{ endfor ~}
+
+# 3. 비밀값: 첫 부팅 때만 만들고 Secret Manager 에 넣는다 (VM 서비스 계정, REST + 메타데이터 토큰).
+add_secret_version() { # $1=secret id, $2=값
+  local token
+  token=$(curl -sf -H 'Metadata-Flavor: Google' 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token' | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+  curl -sf -X POST -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
+    -d "{\"payload\":{\"data\":\"$(printf '%s' "$2" | base64 -w0)\"}}" \
+    "https://secretmanager.googleapis.com/v1/projects/${project_id}/secrets/$1:addVersion" >/dev/null \
+    && log "secret $1 에 version 추가" || log "경고: secret $1 version 추가 실패 (권한·API 확인)"
+}
+
+if [ ! -f "$ROOT/.env.secrets" ]; then
+  log "토큰·비밀번호 생성"
+  WEIGHTS_TOKEN=$(openssl rand -hex 32)
+  GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 16)
+  umask 077
+  printf 'WEIGHTS_TOKEN=%s\nGRAFANA_ADMIN_PASSWORD=%s\n' "$WEIGHTS_TOKEN" "$GRAFANA_ADMIN_PASSWORD" > "$ROOT/.env.secrets"
+  umask 022
+  add_secret_version "${secret_token}" "$WEIGHTS_TOKEN"
+  add_secret_version "${secret_grafana}" "$GRAFANA_ADMIN_PASSWORD"
+fi
+
+# 4. .env = 비밀값 + Terraform 이 정한 값 (매 부팅 다시 쓴다)
+umask 077
+{
+  cat "$ROOT/.env.secrets"
+  cat <<ECHO_ENV_EOF
+UPSTREAMS=${upstreams}
+DEFAULT_WEIGHTS=${default_weights}
+HC_PATH=/healthz
+ENTRY_HTTP_PORT=80
+WEIGHTS_API_PORT=8080
+PROMETHEUS_PORT=9090
+GRAFANA_PORT=3000
+ECHO_ENV_EOF
+} > "$ROOT/.env"
+umask 022
+
+# 5. 올리기
+cd "$ROOT"
+docker compose up -d --build --remove-orphans
+log "완료: http://$(curl -sf -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)/__entry/healthz"

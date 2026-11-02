@@ -129,3 +129,40 @@ variable "github_repository" {
   type        = string
   default     = "Softbank-Hackathon-2026-Team-Echo/echo-infra"
 }
+
+# 고정 진입점 (Envoy VM)
+
+variable "entrypoint_machine_type" {
+  description = "진입점 VM 머신 타입. Envoy·weights-api·Prometheus·Grafana 네 컨테이너"
+  type        = string
+  default     = "e2-small"
+}
+
+variable "entrypoint_upstreams" {
+  description = "환경별 업스트림 host:port (AWS ALB, GKE 인그레이스). 순서는 환경 순서. 정해지기 전엔 placeholder"
+  type        = map(string)
+  default = {
+    aws = "placeholder.invalid:80"
+    gcp = "placeholder.invalid:80"
+  }
+}
+
+variable "entrypoint_default_weights" {
+  description = "저장된 가중치가 없을 때의 초기 가중치 (합 100)"
+  type        = map(number)
+  default = {
+    aws = 100
+    gcp = 0
+  }
+
+  validation {
+    condition     = sum(values(var.entrypoint_default_weights)) == 100
+    error_message = "가중치 합은 100 이어야 한다."
+  }
+}
+
+variable "entrypoint_admin_cidrs" {
+  description = "가중치 API(8080)·Prometheus(9090)·Grafana(3000)에 붙을 수 있는 CIDR. 비어 있으면 열지 않는다"
+  type        = list(string)
+  default     = []
+}
