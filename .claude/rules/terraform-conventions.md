@@ -5,7 +5,7 @@
 
 ## 1. 버전
 
-- Terraform `1.16.x` (`.terraform-version`), AWS provider `~> 6.67.0`. `.terraform.lock.hcl` 은 커밋한다.
+- Terraform `1.16.x` (`.terraform-version`), AWS provider `~> 6.67.0`, Google provider `~> 8.9.0`. `.terraform.lock.hcl` 은 커밋한다.
 - 버전을 올릴 때는 PR 하나로 따로 올린다.
 
 ## 2. 구조
@@ -23,14 +23,15 @@ terraform/
 ## 3. 이름과 태그
 
 - 리소스 이름 접두어는 `var.project`(`echo`). 사람이 읽는 이름은 `<project>-<env>-<역할>`(`echo-dev-eks`).
-- 환경 이름은 RFC 1123 label 로 echo-was 환경 이름과 맞춘다(`aws-tokyo`).
-- 모든 리소스는 provider `default_tags` 로 `project`·`env`·`managed-by`·`repo` 태그를 받는다.
+- 환경 이름은 RFC 1123 label 로 echo-was 환경 이름과 맞춘다(`aws-tokyo`, `gcp-seoul`).
+- 모든 리소스는 provider `default_tags`(AWS)·`default_labels`(GCP) 로 `project`·`env`·`managed-by`·`repo` 를 받는다.
 
 ## 4. 비밀값
 
 - 저장소에 비밀값 0건(NFR-17). 실제 `*.tfvars`·`backend.hcl`·state·kubeconfig 는 커밋하지 않는다(`.gitignore`).
 - 비밀번호는 `ephemeral` 리소스와 `*_wo` 인자로 state 에 남기지 않고 Secrets Manager 에 둔다. echo-was 는 `aws-sm:<이름|ARN>` 으로 참조한다.
-- CI 는 장기 액세스 키 대신 GitHub OIDC 역할을 쓴다.
+- CI 는 장기 액세스 키 대신 GitHub OIDC 역할(AWS)·Workload Identity 연합(GCP)을 쓴다.
+- GCP 자격 증명은 `gcloud auth application-default login` 의 ADC 만 쓴다. 서비스 계정 키 파일을 만들지 않는다.
 
 ## 5. 검사
 

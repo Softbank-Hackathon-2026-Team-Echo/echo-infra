@@ -2,7 +2,7 @@
 
 Team Echo 멀티 클라우드 관리 플랫폼의 **인프라와 이전 엔진**이다. AWS(EKS)·GCP(GKE)·온프레(k3s) 환경을 Terraform·Argo CD 로 세우고, 서비스 이전(트래픽 전환·데이터 동기화·롤백)을 맡는다. 지금은 AWS state 버킷(bootstrap)과 AWS 기반 SPEC 까지 있다.
 
-- **스택**: Terraform 1.16.x, AWS provider ~> 6.67.0, tflint
+- **스택**: Terraform 1.16.x, AWS provider ~> 6.67.0, Google provider ~> 8.9.0, tflint
 - **배경·실행·세팅**: [README.md](README.md) 참조 (여기서 중복하지 않는다)
 - **원장**: 본선 필수 기능 정리 `final_features_v6.md`(F1~F17, NFR). 기능 번호는 이 원장을 따른다.
 
@@ -23,7 +23,7 @@ Team Echo 멀티 클라우드 관리 플랫폼의 **인프라와 이전 엔진**
 | 문서 | 언제 본다 |
 |---|---|
 | [specs/](specs/) | 작업 단위 SPEC. 이슈 1개 = 브랜치 1개 = SPEC 1개 |
-| [contracts/aws-outputs.md](contracts/aws-outputs.md) | 다른 파트에 넘기는 AWS 출력값 이름을 바꾸거나 더할 때 |
+| [contracts/aws-outputs.md](contracts/aws-outputs.md) · [contracts/gcp-outputs.md](contracts/gcp-outputs.md) | 다른 파트에 넘기는 출력값 이름을 바꾸거나 더할 때. 대역 표는 aws-outputs.md 가 단일 출처 |
 | [docs/references.md](docs/references.md) | 다른 저장소 코드를 가져오거나 참고할 때 |
 
 ---
@@ -32,9 +32,10 @@ Team Echo 멀티 클라우드 관리 플랫폼의 **인프라와 이전 엔진**
 
 ```text
 terraform/
-├─ bootstrap/aws/          # state 버킷 (관리자 로컬 state 1회 적용)
-├─ environments/aws/dev/   # AWS 환경 루트 (VPC·EKS·ECR·Budgets·CI 역할 예정)
-└─ modules/                # 재사용 모듈 (필요할 때)
+├─ bootstrap/{aws,gcp}/        # state 버킷 (관리자 로컬 state 1회 적용)
+├─ environments/aws/dev/       # AWS 환경 루트 (VPC·EKS·ECR·Budgets·CI 역할)
+├─ environments/gcp/dev/       # GCP 환경 루트 (VPC·NAT·GKE·Artifact Registry·Budgets·CI 연합)
+└─ modules/                    # 재사용 모듈 (필요할 때)
 contracts/                 # 다른 파트와의 출력값 계약
 specs/                     # 작업 SPEC
 scripts/check.sh           # fmt → validate → tflint
@@ -47,10 +48,11 @@ docs/references.md         # 참고·가져온 코드 기록
 
 - **저장소에 비밀값 0건**(NFR-17). 실제 `*.tfvars`·`backend.hcl`·state·kubeconfig 는 커밋하지 않는다. 비밀번호는 Secrets Manager 에 두고 echo-was 는 `aws-sm:` 으로 참조한다.
 - **apply 는 사람이 plan 을 확인한 뒤에만.** 계정·비용이 걸린 명령(apply·destroy)은 실행 전에 사용자에게 확인한다.
-- **AWS CLI·Terraform 은 프로필 `echo`** 로 실행한다(`AWS_PROFILE=echo`). 다른 프로필(개인 계정)은 쓰지 않는다.
+- **AWS CLI·Terraform 은 프로필 `echo`** 로 실행한다(`AWS_PROFILE=echo`). 다른 프로필(개인 계정)은 쓰지 않는다. GCP 는 `gcloud auth application-default login` 의 ADC 로, 서비스 계정 키 파일은 만들지 않는다.
 - **출력값 이름은 contracts 가 단일 출처.** 바꾸면 PR 체크리스트에 적는다.
 - **환경 하나를 명령 2개 이내로 다시 세운다**(NFR-16). 손으로 콘솔에서 만든 리소스는 남기지 않는다.
-- **다른 파트의 결정은 대신 내리지 않는다.** DB 위치(#4·#7), 프록시 위치(#5)는 그 담당이 정하고, 이 저장소는 요청이 오면 반영한다.
+- **다른 파트의 결정은 대신 내리지 않는다.** DB 위치(#4·#7)는 데이터 담당이 정하고, 이 저장소는 요청이 오면 반영한다. (11/2 20시 회의: 고정 진입점 #5 와 측정·관측 #9·#10 은 인프라 담당이 맡는다. 온프레 #2 는 일단 범위 밖)
+- **AWS·GCP 리소스를 손으로 만들거나 dev 루트를 apply 하는 것은 인프라 담당(서동옥) 확인 뒤에 한다.** 급해서 먼저 만들었으면 `managed-by=<이름>-manual` 태그를 붙이고 이슈에 적는다. Terraform 으로 옮길 때 import 블록을 쓴다(PR #16 참고).
 - 참고 코드는 파일 단위로 옮기고 출처를 커밋 본문과 `docs/references.md` 에 남긴다. 라이선스 없는 저장소는 허락 뒤에.
 
 ---

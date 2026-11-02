@@ -20,19 +20,20 @@ flowchart LR
 |---|---|---|
 | AWS state 버킷 | `terraform/bootstrap/aws` | 코드 있음, 미적용 |
 | AWS 환경 (VPC·EKS·ECR·Budgets·CI 역할) | `terraform/environments/aws/dev` | SPEC 작성 중 ([infra-1](specs/infra-1-aws-foundation.md)) |
-| GCP 환경 | — | GCP 담당 |
-| 온프레 k3s | — | 이슈 #2 |
+| GCP state 버킷 | `terraform/bootstrap/gcp` | 코드 있음, 미적용 |
+| GCP 환경 (VPC·NAT·GKE·Artifact Registry·Budgets·CI 연합) | `terraform/environments/gcp/dev` | 코드 있음, 미적용 ([infra-1-gcp](specs/infra-1-gcp-foundation.md)) |
+| 온프레 k3s | — | 이슈 #2 (11/2 회의: 일단 범위 밖) |
 | 이전 엔진 (프록시·복제·롤백) | — | 이슈 #5~#8 |
 
 ## 핵심 흐름
 
 1. 관리자가 `terraform/bootstrap/aws` 를 1회 적용해 state 버킷을 만든다.
-2. `make up` 으로 AWS 환경을 세운다(예정).
-3. 출력값 `region`·`eks_cluster_name` 으로 echo-was 에 `aws` 환경을 등록한다.
+2. `make up` 으로 AWS 환경을, `make up CLOUD=gcp` 로 GCP 환경을 세운다.
+3. 출력값 `region`·`eks_cluster_name`(AWS), `project_id`·`region`·`gke_cluster_name`(GCP) 으로 echo-was 에 `aws-tokyo`·`gcp-seoul` 환경을 등록한다.
 
 ## 기술 스택
 
-Terraform 1.16.4 · AWS provider ~> 6.67.0 · tflint 0.64.0 · AWS CLI v2
+Terraform 1.16.4 · AWS provider ~> 6.67.0 · Google provider ~> 8.9.0 · tflint 0.64.0 · AWS CLI v2 · gcloud
 
 ## 디렉터리 구조
 
@@ -51,6 +52,10 @@ docs/           # references.md
 aws configure --profile echo          # 본선 계정 키 (본인 터미널에서)
 export AWS_PROFILE=echo
 aws sts get-caller-identity           # 계정 706878591119 확인
+
+gcloud auth login                     # 본선 GCP 프로젝트가 있는 구글 계정
+gcloud auth application-default login # Terraform 이 쓰는 ADC
+gcloud config set project <gcp-project-id>
 
 bash scripts/check.sh                 # fmt · validate · tflint
 
