@@ -70,15 +70,23 @@ resource "google_container_cluster" "this" {
     workload_pool = "${var.project_id}.svc.id.goog"
   }
 
-  addons_config {
-    http_load_balancing {
-      disabled = false
+  # echo-was 는 값 자체를 Terraform state 에 두지 않는다. Secret Manager CSI 와
+  # SecretSync CRD 로 Secret Manager 값을 파드의 파일·Kubernetes Secret 으로 전달한다.
+  secret_manager_config {
+    enabled = true
+
+    rotation_config {
+      enabled           = true
+      rotation_interval = "120s"
     }
-    horizontal_pod_autoscaling {
-      disabled = false
-    }
-    gce_persistent_disk_csi_driver_config {
-      enabled = true
+  }
+
+  secret_sync_config {
+    enabled = true
+
+    rotation_config {
+      enabled           = true
+      rotation_interval = "120s"
     }
   }
 

@@ -27,6 +27,43 @@
 
 업스트림(`entrypoint_upstreams`)은 환경별 인그레스 `host:port` 다(AWS ALB, GKE 인그레스). 각 환경 인그레스는 환경별 주소뿐 아니라 고정 호스트 `{서비스}.echoport.uk` 도 받아야 한다(Host 헤더를 그대로 넘긴다). 동작 원리와 로컬 실행은 [entrypoint/README.md](../entrypoint/README.md).
 
+## 관제탑 (echo-was, `control-plane.tf`)
+
+AWS 도쿄 장애 중에도 이전을 지시하고 상태를 보여야 하므로 echo-was API·Worker·관리용 DB는 GCP 서울 GKE에 둔다. 프론트는 Cloudflare Pages를 그대로 쓴다.
+
+| 출력값 | 받는 쪽 | 사용법 | 상태 |
+|---|---|---|---|
+| `control_plane_ip` | 지민·DNS 담당 | Cloudflare `api.echoport.uk` A 레코드. 인증서가 ACTIVE가 될 때까지 DNS only | 코드 (11/2) |
+| `control_plane_certificate_name` | echo-was GKE Ingress | `ingress.gcp.kubernetes.io/pre-shared-cert` annotation | 코드 (11/2) |
+| `control_plane_service_account` | echo-was KSA | `iam.gke.io/gcp-service-account` annotation | 코드 (11/2) |
+| `control_plane_kubernetes_identity` | API 배포 | namespace `echo-was`, KSA `echo-was` | 코드 (11/2) |
+| `control_plane_secret_ids` | API 배포 | SecretSync로 DB URL·GitHub App 비밀값 전달 | 코드 (11/2) |
+
+Terraform은 비밀값의 **껍데기만** 만들며 version은 만들지 않는다. 값 입력과 Kubernetes 객체는 API 담당 범위다. GSA는 위 세 secret만 읽고 프로젝트의 다른 secret은 읽지 못한다.
+
+GKE Ingress에는 다음 출력값을 연결한다.
+
+```yaml
+metadata:
+  annotations:
+    kubernetes.io/ingress.global-static-ip-name: echo-dev-echo-was
+    ingress.gcp.kubernetes.io/pre-shared-cert: echo-dev-echo-was
+```
+
+KSA에는 `control_plane_service_account` 출력값을 연결한다.
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: echo-was
+  namespace: echo-was
+  annotations:
+    iam.gke.io/gcp-service-account: <control_plane_service_account>
+```
+
+Google 관리형 인증서가 발급되려면 `api.echoport.uk`가 위 고정 IP를 직접 가리켜야 한다. Cloudflare 프록시를 먼저 켜면 검증이 지연될 수 있으므로, 인증서 상태가 `ACTIVE`가 될 때까지 레코드는 **DNS only**로 둔다.
+
 bootstrap 출력값: `state_bucket`(GCP 루트의 `backend.hcl`), `region`.
 
 ## echo-was 환경 등록

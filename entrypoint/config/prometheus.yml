@@ -1,14 +1,17 @@
 # Envoy 통계(환경별 요청 수·오류율·지연·healthy 호스트)와 weights-api(가중치)를 5초마다 긁는다.
 global:
   scrape_interval: 5s
-  evaluation_interval: 5s
 
 scrape_configs:
   - job_name: envoy
     metrics_path: /stats/prometheus
+    # 쓰인 stat 만 받는다 (전체는 수백 KB, 5초마다)
+    params:
+      usedonly: [""]
     static_configs:
       - targets: ["envoy:9901"]
   - job_name: weights-api
     metrics_path: /metrics
+    scrape_interval: 15s # 가중치는 PUT 때만 바뀐다
     static_configs:
       - targets: ["weights-api:8080"]

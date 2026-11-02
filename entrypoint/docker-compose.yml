@@ -1,16 +1,22 @@
 # 고정 진입점 한 벌: envoy(80) · weights-api(8080) · prometheus(9090) · grafana(3000).
 # 로컬: cp .env.example .env 후 docker compose up -d --build. VM: startup 스크립트가 같은 명령을 돈다.
+# json-file 로그는 돌리지 않으면 디스크(20GB)를 채운다. Envoy 는 요청마다 한 줄을 남긴다.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 services:
   weights-api:
     build: ./weights-api
     image: echo-entry-weights-api:local
     restart: unless-stopped
+    logging: *logging
     environment:
       WEIGHTS_TOKEN: ${WEIGHTS_TOKEN:?WEIGHTS_TOKEN 을 .env 에 넣는다}
       UPSTREAMS: ${UPSTREAMS:?UPSTREAMS 를 .env 에 넣는다 (aws=host:port,gcp=host:port)}
       DEFAULT_WEIGHTS: ${DEFAULT_WEIGHTS:-aws=100,gcp=0}
-      ENVOY_ADMIN: http://envoy:9901
-      HC_PATH: ${HC_PATH:-/healthz}
     volumes:
       - envoy-dynamic:/etc/envoy/dynamic
     ports:
@@ -19,6 +25,7 @@ services:
   envoy:
     image: envoyproxy/envoy:v1.39.6
     restart: unless-stopped
+    logging: *logging
     command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
     volumes:
       - ./config/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
@@ -34,6 +41,7 @@ services:
   prometheus:
     image: prom/prometheus:v3.15.1
     restart: unless-stopped
+    logging: *logging
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d"]
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -44,6 +52,7 @@ services:
   grafana:
     image: grafana/grafana:13.2.5
     restart: unless-stopped
+    logging: *logging
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD 를 .env 에 넣는다}
       GF_AUTH_ANONYMOUS_ENABLED: "true"

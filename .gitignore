@@ -19,6 +19,7 @@ $RECYCLE.BIN/
 
 # Terraform (lock 파일은 커밋한다)
 .terraform/
+.terraform-check/
 *.tfstate
 *.tfstate.*
 *.tfplan

@@ -4,16 +4,14 @@
 locals {
   entry_name = "${local.name}-entry"
 
-  # VM 에 쓰는 파일 (경로 → 내용). 비밀값은 없다(토큰·비밀번호는 VM 이 첫 부팅 때 만든다).
+  # VM 에 쓰는 파일 (경로 → 내용). 허용 목록 패턴이라 .env·README 는 실리지 않는다. 비밀값은 없다(토큰·비밀번호는 VM 이 첫 부팅 때 만든다).
+  entry_src = "${path.module}/../../../../entrypoint"
   entry_files = {
-    "docker-compose.yml"                                     = file("${path.module}/../../../../entrypoint/docker-compose.yml")
-    "weights-api/Dockerfile"                                 = file("${path.module}/../../../../entrypoint/weights-api/Dockerfile")
-    "weights-api/app.py"                                     = file("${path.module}/../../../../entrypoint/weights-api/app.py")
-    "config/envoy/envoy.yaml"                                = file("${path.module}/../../../../entrypoint/config/envoy/envoy.yaml")
-    "config/prometheus.yml"                                  = file("${path.module}/../../../../entrypoint/config/prometheus.yml")
-    "config/grafana/provisioning/datasources/prometheus.yml" = file("${path.module}/../../../../entrypoint/config/grafana/provisioning/datasources/prometheus.yml")
-    "config/grafana/provisioning/dashboards/dashboards.yml"  = file("${path.module}/../../../../entrypoint/config/grafana/provisioning/dashboards/dashboards.yml")
-    "config/grafana/provisioning/dashboards/entrypoint.json" = file("${path.module}/../../../../entrypoint/config/grafana/provisioning/dashboards/entrypoint.json")
+    for p in setunion(
+      fileset(local.entry_src, "docker-compose.yml"),
+      fileset(local.entry_src, "weights-api/*"),
+      fileset(local.entry_src, "config/**"),
+    ) : p => file("${local.entry_src}/${p}")
   }
 
   entry_upstreams       = join(",", [for env, hp in var.entrypoint_upstreams : "${env}=${hp}"])
@@ -146,20 +144,20 @@ resource "google_compute_instance" "entry" {
     enable_integrity_monitoring = true
   }
 
+  # startup-script 는 metadata 맵에 둔다. metadata_startup_script 인자는 바뀔 때마다 VM 을 새로 만들지만
+  # 맵 항목은 제자리에서 갱신된다. 부팅 때마다 돈다(멱등): 파일을 다시 쓰고 docker compose up -d --build.
+  # 바꾼 뒤 다시 돌리기: sudo google_metadata_script_runner startup
   metadata = {
     enable-oslogin = "TRUE"
+    startup-script = templatefile("${path.module}/entrypoint-startup.sh.tftpl", {
+      files           = local.entry_files
+      upstreams       = local.entry_upstreams
+      default_weights = local.entry_default_weights
+      project_id      = var.project_id
+      secret_token    = google_secret_manager_secret.entry["weights-token"].secret_id
+      secret_grafana  = google_secret_manager_secret.entry["grafana-admin"].secret_id
+    })
   }
-
-  # 부팅 때마다 돈다(멱등). 파일을 다시 쓰고 docker compose up -d --build.
-  # 바꾼 뒤 다시 돌리기: sudo google_metadata_script_runner startup
-  metadata_startup_script = templatefile("${path.module}/entrypoint-startup.sh.tftpl", {
-    files           = local.entry_files
-    upstreams       = local.entry_upstreams
-    default_weights = local.entry_default_weights
-    project_id      = var.project_id
-    secret_token    = google_secret_manager_secret.entry["weights-token"].secret_id
-    secret_grafana  = google_secret_manager_secret.entry["grafana-admin"].secret_id
-  })
 
   depends_on = [
     google_project_iam_member.entry,

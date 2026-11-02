@@ -24,10 +24,10 @@ terraform fmt -check -recursive terraform
 for dir in "${roots[@]}"; do
   echo "check: terraform validate ${dir}"
   # backend 로 init 된 .terraform 을 쓰지 않는다. 검사는 클라우드 자격 증명 없이 돈다.
-  data_dir="$(mktemp -d)"
+  # 루트별 고정 디렉터리(.gitignore)라 두 번째부터는 init 이 거의 바로 끝난다.
+  data_dir="${dir}/.terraform-check"
   TF_DATA_DIR="$data_dir" terraform -chdir="$dir" init -backend=false -input=false -no-color >/dev/null
   TF_DATA_DIR="$data_dir" terraform -chdir="$dir" validate -no-color
-  rm -rf "$data_dir"
 done
 
 if command -v tflint >/dev/null 2>&1; then

@@ -1,6 +1,4 @@
 # 복사해서 terraform.tfvars 로 쓴다 (terraform.tfvars 는 커밋하지 않는다).
-state_bucket = "echo-tfstate-<account_id>"
-
 eks_admin_principal_arns = [
   "arn:aws:iam::<account_id>:user/<이름>",
 ]

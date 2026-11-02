@@ -105,8 +105,3 @@ variable "github_repository" {
   type        = string
   default     = "Softbank-Hackathon-2026-Team-Echo/echo-infra"
 }
-
-variable "state_bucket" {
-  description = "terraform/bootstrap/aws 의 state_bucket 출력값. CI 역할에 읽기·잠금 권한을 준다"
-  type        = string
-}
