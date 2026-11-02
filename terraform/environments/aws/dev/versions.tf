@@ -1,0 +1,26 @@
+terraform {
+  required_version = "~> 1.16.0"
+
+  # 값은 backend.hcl (커밋하지 않음, backend.hcl.example 참고)
+  backend "s3" {}
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.67.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = var.region
+
+  default_tags {
+    tags = {
+      project    = var.project
+      env        = var.environment
+      managed-by = "terraform"
+      repo       = "echo-infra"
+    }
+  }
+}
