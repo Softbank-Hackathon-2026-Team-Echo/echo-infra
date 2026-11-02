@@ -8,6 +8,9 @@ gke_admin_members = [
 # 장소 IP 가 정해지면 좁힌다
 # gke_public_access_cidrs = ["203.0.113.0/24"]
 
+# 가중치·요약 API(8080)와 Prometheus·Grafana 를 열 출발 IP: echo-was 가 있는 클러스터의 NAT IP (GKE nat_ip, 임시로 AWS NAT EIP)
+# entrypoint_admin_cidrs = ["<gke nat_ip>/32", "<aws nat eip>/32"]
+
 # 결제 계정 관리자만 만들 수 있다. 아니면 비워 두고 콘솔 예산을 쓴다.
 # billing_account            = "XXXXXX-XXXXXX-XXXXXX"
 # budget_limit_usd           = 150

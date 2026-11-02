@@ -50,9 +50,15 @@ steps:
 
 임시 키는 1시간(ID 토큰도 1시간)이라 만료 전까지 재사용하고, 배포마다 새로 받지 않는다. 지금은 API 와 일꾼이 **같은 GSA** 다. 인터넷에 열린 API 가 뚫리면 두 클러스터 권한이 같이 넘어가므로, 시간이 나면 일꾼 전용 KSA·GSA(`echo-dev-executor`)로 분리한다(API 팀과 조율).
 
-## 3. 트래픽 전환
+## 3. 트래픽 전환·측정 (`entrypoint_weights_url`, Bearer 토큰은 Secret Manager `entrypoint_token_secret`)
 
-`entrypoint_weights_url` 에 `PUT /weights {"aws":90,"gcp":10}` (Bearer 토큰은 Secret Manager `entrypoint_token_secret`, GSA 에 `secretmanager.secretAccessor` 를 주면 일꾼이 직접 읽는다 — 필요하면 요청).
+| 실행기 | 호출 | 응답 |
+|---|---|---|
+| TrafficExecutor·MainRouteExecutor | `PUT /weights {"aws":90,"gcp":10}` (합 100) | 반영된 가중치. Envoy 가 수 초 안에 바꾼다 |
+| MetricsProvider | `GET /summary?window=30s` | `{"ts","window","weights","total":{"rps","error_ratio"},"envs":{"aws":{"rps","error_ratio","p95_ms","healthy_hosts","hosts","weight"},…},"prometheus":"ok"}` |
+| HealthChecker(보조) | `GET /status` | 환경별 hosts·healthy (Envoy admin 기준) |
+
+`/summary` 는 Prometheus(5초 스크레이프) 값이라 전환 직후 몇 초는 비어 있을 수 있다(`null`). RTO 는 가중치 변경 시각과 `envs.<대상>.rps` 가 올라온 시각의 차, 실패 요청 수는 `error_ratio × rps × 초` 로 echo-was 가 계산해 이전 기록에 남긴다(#10). 8080 은 `entrypoint_admin_cidrs`(echo-was 가 있는 클러스터의 NAT IP)에만 열려 있다. GSA 에 `secretmanager.secretAccessor` 를 주면 일꾼이 토큰을 직접 읽는다 — 필요하면 요청.
 
 ## 4. 정리할 것 (echo-was 가 GKE 로 옮겨진 뒤)
 

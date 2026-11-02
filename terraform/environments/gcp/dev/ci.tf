@@ -75,6 +75,15 @@ resource "google_artifact_registry_repository_iam_member" "ci_build_writer" {
   member     = "serviceAccount:${google_service_account.ci_build.email}"
 }
 
+# echo-was 자체 CD(deploy.yml)가 GKE 에 배포할 때도 같은 CI 신원을 쓴다 (API 담당 요청, 11/3).
+resource "google_project_iam_member" "ci_build_gke" {
+  project = var.project_id
+  role    = "roles/container.developer"
+  member  = "serviceAccount:${google_service_account.ci_build.email}"
+
+  depends_on = [google_project_service.this["cloudresourcemanager.googleapis.com"]]
+}
+
 resource "google_service_account_iam_member" "ci_build_wif" {
   for_each           = toset(module.github.build_repositories)
   service_account_id = google_service_account.ci_build.name
