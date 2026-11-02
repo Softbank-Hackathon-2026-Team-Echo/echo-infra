@@ -1,0 +1,14 @@
+# 복사해서 terraform.tfvars 로 쓴다 (terraform.tfvars 는 커밋하지 않는다).
+project_id = "<gcp-project-id>"
+
+gke_admin_members = [
+  "user:<팀원 구글 계정>",
+]
+
+# 장소 IP 가 정해지면 좁힌다
+# gke_public_access_cidrs = ["203.0.113.0/24"]
+
+# 결제 계정 관리자만 만들 수 있다. 아니면 비워 두고 콘솔 예산을 쓴다.
+# billing_account            = "XXXXXX-XXXXXX-XXXXXX"
+# budget_limit_usd           = 150
+# budget_notification_emails = ["<팀 메일>"]
