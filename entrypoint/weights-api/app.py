@@ -1,0 +1,347 @@
+#!/usr/bin/env python3
+"""고정 진입점 가중치 API.
+
+Envoy 가 읽는 파일 기반 xDS(/etc/envoy/dynamic/clusters.yaml·routes.yaml)를 만들고 바꾼다.
+표준 라이브러리만 쓴다. echo-was 실행기가 PUT /weights 로 트래픽 비율을 옮긴다.
+
+  GET  /health            살아 있나 (토큰 없이)
+  GET  /metrics           Prometheus 형식: 현재 가중치, 환경별 healthy 호스트 수 (토큰 없이, 내부망)
+  GET  /weights           현재 가중치 {"aws": 90, "gcp": 10}
+  PUT  /weights           가중치 변경. 모든 환경 키, 0~100 정수, 합 100
+  GET  /status            가중치 + Envoy admin 에서 본 환경별 호스트·healthy 수
+
+환경 변수
+  WEIGHTS_TOKEN    Bearer 토큰 (비어 있으면 보호된 경로는 503)
+  UPSTREAMS        "aws=host:port,gcp=host:port" (순서 = 우선순위 표기 순서)
+  DEFAULT_WEIGHTS  "aws=100,gcp=0" (저장된 가중치가 없을 때)
+  DYNAMIC_DIR      Envoy 와 공유하는 디렉터리 (기본 /etc/envoy/dynamic)
+  ENVOY_ADMIN      Envoy admin 주소 (기본 http://envoy:9901)
+  HC_PATH          업스트림 헬스체크 경로 (기본 /healthz)
+"""
+
+import json
+import os
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+DYNAMIC_DIR = os.environ.get("DYNAMIC_DIR", "/etc/envoy/dynamic")
+STATE_DIR = os.path.join(DYNAMIC_DIR, "state")  # watched_directory 는 하위 디렉터리를 보지 않는다
+STATE_PATH = os.path.join(STATE_DIR, "weights.json")
+TOKEN = os.environ.get("WEIGHTS_TOKEN", "")
+ENVOY_ADMIN = os.environ.get("ENVOY_ADMIN", "http://envoy:9901").rstrip("/")
+HC_PATH = os.environ.get("HC_PATH", "/healthz")
+LISTEN_PORT = int(os.environ.get("PORT", "8080"))
+
+LOCK = threading.Lock()
+READY = threading.Event()
+
+
+def log(**kv):
+    kv.setdefault("ts", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    print(json.dumps(kv, ensure_ascii=False), flush=True)
+
+
+def parse_kv(raw, name):
+    out = {}
+    for item in filter(None, (s.strip() for s in raw.split(","))):
+        if "=" not in item:
+            raise SystemExit(f"{name}: '{item}' 은 key=value 꼴이어야 한다")
+        k, v = item.split("=", 1)
+        out[k.strip()] = v.strip()
+    if not out:
+        raise SystemExit(f"{name} 이 비어 있다")
+    return out
+
+
+UPSTREAMS = parse_kv(os.environ.get("UPSTREAMS", ""), "UPSTREAMS")
+ENVS = list(UPSTREAMS)
+for env, hp in UPSTREAMS.items():
+    if ":" not in hp or not hp.rsplit(":", 1)[1].isdigit():
+        raise SystemExit(f"UPSTREAMS: {env}={hp} 는 host:port 꼴이어야 한다")
+    if not env.replace("-", "").replace("_", "").isalnum():
+        raise SystemExit(f"UPSTREAMS: 환경 이름 {env} 에 쓸 수 없는 문자")
+
+DEFAULT_WEIGHTS = {k: int(v) for k, v in parse_kv(os.environ.get("DEFAULT_WEIGHTS", f"{ENVS[0]}=100"), "DEFAULT_WEIGHTS").items()}
+for env in ENVS:
+    DEFAULT_WEIGHTS.setdefault(env, 0)
+
+
+# ---------- 검증 ----------
+
+def validate_weights(obj):
+    if not isinstance(obj, dict):
+        raise ValueError("본문은 JSON 객체여야 한다")
+    if set(obj) != set(ENVS):
+        raise ValueError(f"키는 정확히 {ENVS} 여야 한다")
+    out = {}
+    for env in ENVS:
+        v = obj[env]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or (isinstance(v, float) and not v.is_integer()):
+            raise ValueError(f"{env}: 정수여야 한다")
+        v = int(v)
+        if not 0 <= v <= 100:
+            raise ValueError(f"{env}: 0~100 이어야 한다")
+        out[env] = v
+    if sum(out.values()) != 100:
+        raise ValueError("합이 100 이어야 한다")
+    return out
+
+
+# ---------- Envoy 파일 렌더링 ----------
+
+def fallback_name(env):
+    """env 가 건강하면 env, 아니면 나머지 환경 순서대로. 예: aws_then_gcp"""
+    others = [e for e in ENVS if e != env]
+    return "_then_".join([env] + others) if others else env
+
+
+def render_clusters():
+    lines = [
+        "# weights-api 가 만든 파일. 손으로 고치지 않는다 (UPSTREAMS 환경 변수를 바꾼다).",
+        f'version_info: "{int(time.time() * 1000)}"',
+        "resources:",
+    ]
+    for env in ENVS:
+        host, port = UPSTREAMS[env].rsplit(":", 1)
+        lines += [
+            '  - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster',
+            f"    name: {env}",
+            "    type: STRICT_DNS",
+            "    dns_lookup_family: V4_ONLY",
+            "    connect_timeout: 2s",
+            "    lb_policy: ROUND_ROBIN",
+            "    # 건강한 호스트가 없으면 panic 라우팅으로 죽은 호스트에 보내지 않는다 (대신 다음 환경으로)",
+            "    common_lb_config:",
+            "      healthy_panic_threshold: { value: 0 }",
+            "    load_assignment:",
+            f"      cluster_name: {env}",
+            "      endpoints:",
+            "        - lb_endpoints:",
+            "            - endpoint:",
+            "                address:",
+            f'                  socket_address: {{ address: "{host}", port_value: {int(port)} }}',
+            "    health_checks:",
+            "      - timeout: 1s",
+            "        interval: 2s",
+            "        no_traffic_interval: 2s",
+            "        unhealthy_threshold: 2",
+            "        healthy_threshold: 1",
+            "        http_health_check:",
+            f'          path: "{HC_PATH}"',
+            "    outlier_detection:",
+            "      consecutive_5xx: 3",
+            "      consecutive_gateway_failure: 3",
+            "      interval: 2s",
+            "      base_ejection_time: 10s",
+            "      max_ejection_percent: 100",
+        ]
+    for env in ENVS:
+        chain = [env] + [e for e in ENVS if e != env]
+        lines += [
+            '  - "@type": type.googleapis.com/envoy.config.cluster.v3.Cluster',
+            f"    name: {fallback_name(env)}",
+            "    connect_timeout: 2s",
+            "    lb_policy: CLUSTER_PROVIDED",
+            "    common_lb_config:",
+            "      healthy_panic_threshold: { value: 0 }",
+            "    cluster_type:",
+            "      name: envoy.clusters.aggregate",
+            "      typed_config:",
+            '        "@type": type.googleapis.com/envoy.extensions.clusters.aggregate.v3.ClusterConfig',
+            f"        clusters: [{', '.join(chain)}]",
+        ]
+    return "\n".join(lines) + "\n"
+
+
+def render_routes(weights):
+    lines = [
+        "# weights-api 가 만든 파일. 손으로 고치지 않는다 (PUT /weights).",
+        f'version_info: "{int(time.time() * 1000)}"',
+        "resources:",
+        '  - "@type": type.googleapis.com/envoy.config.route.v3.RouteConfiguration',
+        "    name: echo_routes",
+        "    virtual_hosts:",
+        "      - name: customer_apps",
+        '        domains: ["*"]',
+        "        routes:",
+        "          # 진입점 자체 상태 (Cloudflare·외부 감시용)",
+        "          - match: { path: /__entry/healthz }",
+        "            direct_response: { status: 200, body: { inline_string: \"ok\\n\" } }",
+        "          - match: { prefix: / }",
+        "            route:",
+        "              timeout: 30s",
+        "              retry_policy:",
+        "                retry_on: connect-failure,refused-stream,reset",
+        "                num_retries: 2",
+        "                per_try_timeout: 5s",
+        "                retry_host_predicate:",
+        "                  - name: envoy.retry_host_predicates.previous_hosts",
+        "                    typed_config:",
+        '                      "@type": type.googleapis.com/envoy.extensions.retry.host.previous_hosts.v3.PreviousHostsPredicate',
+        "                host_selection_retry_max_attempts: 3",
+        "              weighted_clusters:",
+        "                clusters:",
+    ]
+    for env in ENVS:
+        lines += [
+            f"                  - name: {fallback_name(env)}",
+            f"                    weight: {weights[env]}",
+        ]
+    return "\n".join(lines) + "\n"
+
+
+def write_atomic(path, text):
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)  # 같은 디렉터리 안 rename → Envoy watched_directory 가 감지
+
+
+def load_weights():
+    try:
+        with open(STATE_PATH, encoding="utf-8") as f:
+            return validate_weights(json.load(f))
+    except FileNotFoundError:
+        return dict(DEFAULT_WEIGHTS)
+    except (ValueError, json.JSONDecodeError) as e:
+        log(level="warn", msg="저장된 가중치가 깨져 기본값을 쓴다", error=str(e))
+        return dict(DEFAULT_WEIGHTS)
+
+
+def apply_weights(weights):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    write_atomic(STATE_PATH, json.dumps(weights))
+    write_atomic(os.path.join(DYNAMIC_DIR, "routes.yaml"), render_routes(weights))
+
+
+def seed():
+    os.makedirs(STATE_DIR, exist_ok=True)
+    write_atomic(os.path.join(DYNAMIC_DIR, "clusters.yaml"), render_clusters())
+    weights = load_weights()
+    apply_weights(weights)
+    log(msg="seeded", upstreams=UPSTREAMS, weights=weights)
+    READY.set()
+
+
+# ---------- Envoy admin ----------
+
+def envoy_cluster_health():
+    """{env: {"hosts": n, "healthy": m}} 또는 None(Envoy 접속 실패)"""
+    try:
+        with urllib.request.urlopen(f"{ENVOY_ADMIN}/clusters?format=json", timeout=3) as r:
+            data = json.load(r)
+    except (urllib.error.URLError, json.JSONDecodeError, OSError):
+        return None
+    out = {env: {"hosts": 0, "healthy": 0} for env in ENVS}
+    for cs in data.get("cluster_statuses", []):
+        name = cs.get("name")
+        if name not in out:
+            continue
+        for hs in cs.get("host_statuses", []):
+            h = hs.get("health_status", {})
+            healthy = (
+                not h.get("failed_active_health_check", False)
+                and not h.get("failed_outlier_check", False)
+                and h.get("eds_health_status", "HEALTHY") != "UNHEALTHY"
+            )
+            out[name]["hosts"] += 1
+            out[name]["healthy"] += 1 if healthy else 0
+    return out
+
+
+# ---------- HTTP ----------
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "weights-api/1"
+
+    def log_message(self, fmt, *args):  # 기본 stderr 로그 대신 JSON
+        log(method=self.command, path=self.path, status=args[1] if len(args) > 1 else None, client=self.client_address[0])
+
+    def _send(self, status, body, content_type="application/json"):
+        raw = body.encode("utf-8") if isinstance(body, str) else json.dumps(body, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", content_type if isinstance(body, str) else "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def _authorized(self):
+        if not TOKEN:
+            self._send(503, {"error": "WEIGHTS_TOKEN 이 설정되지 않았다"})
+            return False
+        auth = self.headers.get("Authorization", "")
+        if auth != f"Bearer {TOKEN}":
+            self._send(401, {"error": "Bearer 토큰이 필요하다"})
+            return False
+        return True
+
+    def do_GET(self):
+        if self.path == "/health":
+            return self._send(200 if READY.is_set() else 503, {"ready": READY.is_set()})
+        if self.path == "/metrics":
+            return self._send(200, self._metrics(), "text/plain; version=0.0.4; charset=utf-8")
+        if self.path == "/weights":
+            if not self._authorized():
+                return
+            with LOCK:
+                return self._send(200, load_weights())
+        if self.path == "/status":
+            if not self._authorized():
+                return
+            with LOCK:
+                weights = load_weights()
+            health = envoy_cluster_health()
+            return self._send(200, {
+                "weights": weights,
+                "upstreams": {env: {"address": UPSTREAMS[env], **((health or {}).get(env, {"hosts": None, "healthy": None}))} for env in ENVS},
+                "envoy": "ok" if health is not None else "unreachable",
+            })
+        self._send(404, {"error": "없는 경로"})
+
+    def do_PUT(self):
+        if self.path != "/weights":
+            return self._send(404, {"error": "없는 경로"})
+        if not self._authorized():
+            return
+        try:
+            n = int(self.headers.get("Content-Length", "0"))
+            body = json.loads(self.rfile.read(n) or b"{}")
+            weights = validate_weights(body)
+        except (ValueError, json.JSONDecodeError) as e:
+            return self._send(400, {"error": str(e)})
+        with LOCK:
+            before = load_weights()
+            apply_weights(weights)
+        log(msg="weights changed", before=before, after=weights, client=self.client_address[0])
+        self._send(200, weights)
+
+    def _metrics(self):
+        with LOCK:
+            weights = load_weights()
+        health = envoy_cluster_health() or {}
+        out = ["# HELP entrypoint_weight 환경별 트래픽 가중치 (0~100)", "# TYPE entrypoint_weight gauge"]
+        out += [f'entrypoint_weight{{env="{env}"}} {weights[env]}' for env in ENVS]
+        out += ["# HELP entrypoint_upstream_healthy_hosts Envoy 가 본 환경별 healthy 호스트 수", "# TYPE entrypoint_upstream_healthy_hosts gauge"]
+        out += [f'entrypoint_upstream_healthy_hosts{{env="{env}"}} {health.get(env, {}).get("healthy", 0)}' for env in ENVS]
+        out += ["# HELP entrypoint_envoy_up Envoy admin 응답 여부", "# TYPE entrypoint_envoy_up gauge", f"entrypoint_envoy_up {1 if health else 0}"]
+        return "\n".join(out) + "\n"
+
+
+def main():
+    seed()
+    srv = ThreadingHTTPServer(("0.0.0.0", LISTEN_PORT), Handler)
+    log(msg="listening", port=LISTEN_PORT, envs=ENVS, token_set=bool(TOKEN))
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    sys.exit(main())
