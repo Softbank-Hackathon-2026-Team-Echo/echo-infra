@@ -1,7 +1,8 @@
 # 월 비용 알림 (NFR-13). 실제 비용 80% 와 예측 비용 100% 에서 메일을 보낸다.
-# 결제 계정 ID 가 없으면 만들지 않는다 (콘솔 예산을 쓴다). 적용하는 사람은 결제 계정 관리자여야 한다.
+# 받는 메일이 없으면 만들지 않는다 (AWS 루트와 같은 스위치). 메일이 있으면 billing_account 도 있어야 한다(variables.tf 검증).
+# 적용하는 사람은 결제 계정 관리자여야 한다.
 resource "google_monitoring_notification_channel" "budget" {
-  for_each     = var.billing_account != "" ? toset(var.budget_notification_emails) : toset([])
+  for_each     = toset(var.budget_notification_emails)
   display_name = "budget ${each.value}"
   type         = "email"
 
@@ -13,7 +14,7 @@ resource "google_monitoring_notification_channel" "budget" {
 }
 
 resource "google_billing_budget" "monthly" {
-  count = var.billing_account != "" ? 1 : 0
+  count = length(var.budget_notification_emails) > 0 ? 1 : 0
 
   billing_account = var.billing_account
   display_name    = "${local.name}-monthly"
@@ -40,7 +41,6 @@ resource "google_billing_budget" "monthly" {
 
   all_updates_rule {
     monitoring_notification_channels = [for c in google_monitoring_notification_channel.budget : c.id]
-    disable_default_iam_recipients   = false
   }
 
   depends_on = [google_project_service.this["billingbudgets.googleapis.com"]]

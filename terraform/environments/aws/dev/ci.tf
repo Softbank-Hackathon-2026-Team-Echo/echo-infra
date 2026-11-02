@@ -4,6 +4,13 @@ resource "aws_iam_openid_connect_provider" "github" {
   client_id_list = ["sts.amazonaws.com"]
 }
 
+# state 버킷 이름은 terraform/bootstrap/aws 와 같은 규칙으로 계산한다 (tfvars 에 다시 적지 않는다).
+data "aws_caller_identity" "current" {}
+
+locals {
+  state_bucket = "${var.project}-tfstate-${data.aws_caller_identity.current.account_id}"
+}
+
 resource "aws_iam_role" "ci_plan" {
   name = "${local.name}-ci-plan"
   assume_role_policy = jsonencode({
@@ -41,17 +48,17 @@ resource "aws_iam_role_policy" "ci_plan_state" {
       {
         Effect   = "Allow"
         Action   = "s3:ListBucket"
-        Resource = "arn:aws:s3:::${var.state_bucket}"
+        Resource = "arn:aws:s3:::${local.state_bucket}"
       },
       {
         Effect   = "Allow"
         Action   = "s3:GetObject"
-        Resource = "arn:aws:s3:::${var.state_bucket}/*"
+        Resource = "arn:aws:s3:::${local.state_bucket}/*"
       },
       {
         Effect   = "Allow"
         Action   = ["s3:PutObject", "s3:DeleteObject"]
-        Resource = "arn:aws:s3:::${var.state_bucket}/*.tflock"
+        Resource = "arn:aws:s3:::${local.state_bucket}/*.tflock"
       },
     ]
   })

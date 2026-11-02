@@ -105,9 +105,14 @@ variable "artifact_images" {
 # 비용 알림
 
 variable "billing_account" {
-  description = "결제 계정 ID (XXXXXX-XXXXXX-XXXXXX). 비어 있으면 Terraform 예산을 만들지 않는다(콘솔 예산을 쓴다)"
+  description = "결제 계정 ID (XXXXXX-XXXXXX-XXXXXX). budget_notification_emails 가 있을 때만 필요하다"
   type        = string
   default     = ""
+
+  validation {
+    condition     = length(var.budget_notification_emails) == 0 || var.billing_account != ""
+    error_message = "비용 알림 메일을 넣었으면 billing_account 도 넣어야 한다."
+  }
 }
 
 variable "budget_limit_usd" {
@@ -117,7 +122,7 @@ variable "budget_limit_usd" {
 }
 
 variable "budget_notification_emails" {
-  description = "비용 알림을 받을 메일. 비어 있으면 알림 채널을 만들지 않는다"
+  description = "비용 알림을 받을 메일. 비어 있으면 Terraform 예산을 만들지 않는다(콘솔 예산을 쓴다)"
   type        = list(string)
   default     = []
 }
