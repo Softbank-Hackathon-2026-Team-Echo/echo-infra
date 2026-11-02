@@ -6,7 +6,7 @@
 
 | 이 저장소 경로 | 원본 저장소@커밋 | 원본 경로 | 바꾼 점 | 허락 |
 |---|---|---|---|---|
-| (아직 없음) | | | | |
+| `terraform/modules/alb-controller-iam/policy.json` | `kubernetes-sigs/aws-load-balancer-controller`@`v3.6.2` | `docs/install/iam_policy.json` | 들여쓰기만 정리(내용 같음) | Apache-2.0 (LICENSE 있음) |
 
 ## 참고 저장소
 
