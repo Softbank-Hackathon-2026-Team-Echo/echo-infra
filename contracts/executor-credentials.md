@@ -71,3 +71,22 @@ echo-was 는 GKE 에 있으므로 **내부 주소**(`http://10.60.0.6:8080`, 방
 ## 4. 정리할 것 (echo-was 가 GKE 로 옮겨진 뒤)
 
 - 지민이 손으로 만든 `echo-was-deploy` 역할·정책·Access Entry, 도쿄 ACM 인증서는 삭제한다. Terraform 으로 옮기지 않는다.
+
+## 5. 실제 배포 실행기 환경 값 (API 서버 3-2, 2026-11-03)
+
+echo-was 환경 행(`environments.config`)과 설정에 넣을 값. 주소·ARN 은 적용 뒤 확정값으로 바꾼다.
+
+| 대상 | 칸 | 값 | 출처 |
+|---|---|---|---|
+| aws 환경 | `ingressDomain` | `aws-tokyo.echoport.uk` | AWS dev `var.apps_domain` |
+| aws 환경 | `ingressGroup` | `echo-apps` | `cluster-addons/eks/anchor-ingress.yaml` |
+| aws 환경 | `certificateArn` | `terraform output acm_apps_certificate_arn`(AWS dev, ISSUED 뒤) | `acm.tf` |
+| aws 환경 | `roleArn` | 비움 → 설정 `EXECUTOR_AWS_ROLE_ARN` = `executor_role_arn` 출력값 | §2 |
+| gcp 환경 | `clusterLocation` | `asia-northeast3-a` | gcp-outputs |
+| gcp 환경 | `ingressDomain` | `gcp-seoul.echoport.uk` | `cluster-addons/gke` |
+| 설정 | `PUBLIC_BASE_DOMAIN` | `echoport.uk` | — |
+| 설정 | `IMAGE_REGISTRY_MIRRORS` | `asia-northeast3-docker.pkg.dev/team-echo-final/echo=706878591119.dkr.ecr.ap-northeast-1.amazonaws.com/echo` | §1 |
+| 설정 | `BUILD_GITHUB_WORKFLOW` | `customer-build.yml`(echo-was PR #39) | §1 |
+| GSA | AR `echo` 읽기 | `google_artifact_registry_repository_iam_member.control_plane_reader`(온프레 받기 자격용, P6) | control-plane.tf |
+
+공유 문·DNS·인증서 절차는 [cluster-addons/README.md](../cluster-addons/README.md).
