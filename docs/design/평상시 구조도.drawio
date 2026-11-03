@@ -1,0 +1,69 @@
+<mxfile host="app.diagrams.net" type="device">
+  <diagram id="normal-flow" name="평상시 (복제+백업)">
+    <mxGraphModel dx="900" dy="640" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1150" pageHeight="700" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="g_onprem" value="온프레미스 환경 (Docker)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;verticalAlign=top;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="240" height="340" as="geometry" />
+        </mxCell>
+        <mxCell id="n_service" value="서비스" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="80" y="90" width="160" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="n_dbms" value="DBMS&lt;br&gt;binlog = ROW + GTID" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="80" y="170" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="n_producer" value="Debezium Server  #2&lt;br&gt;(자동 배치 · CDC 캡처)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="80" y="280" width="160" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g_platform" value="플랫폼 (중앙)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;verticalAlign=top;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="420" y="40" width="240" height="340" as="geometry" />
+        </mxCell>
+        <mxCell id="n_stream" value="Redis Stream&lt;br&gt;(전송만, 백업본 아님)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="460" y="90" width="160" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="n_consumer" value="Redis Consumer  #3&lt;br&gt;멱등 적용 (PK Upsert)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="460" y="180" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="n_meta" value="메타 저장소  #5&lt;br&gt;카탈로그 / Checkpoint&lt;br&gt;(offset + schema + image)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="460" y="285" width="160" height="65" as="geometry" />
+        </mxCell>
+
+        <mxCell id="g_cloud" value="대상 환경 (클라우드)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;verticalAlign=top;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="800" y="40" width="250" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="n_replica" value="타겟 복제본 DB&lt;br&gt;(계속 반영되는 최신 사본)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="830" y="90" width="190" height="55" as="geometry" />
+        </mxCell>
+
+        <mxCell id="n_backup" value="백업 저장소  #4&lt;br&gt;Object Storage / MinIO (S3 호환)&lt;br&gt;base snapshot(주기) + 연속 binlog" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="800" y="250" width="290" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="n_service" target="n_dbms">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="binlog" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="n_dbms" target="n_producer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="base snapshot(주기) + binlog" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="n_dbms" target="n_backup">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="변경 이벤트 (Redis sink)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="n_producer" target="n_stream">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="이벤트" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="n_stream" target="n_consumer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="변경점 반영 (멱등 Upsert)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="n_consumer" target="n_replica">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="처리한 offset" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;" edge="1" parent="1" source="n_consumer" target="n_meta">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
