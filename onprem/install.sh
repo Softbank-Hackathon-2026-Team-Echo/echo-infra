@@ -16,6 +16,7 @@
 #   DEMO_HOST                   앱 주소(Ingress host). 터널의 공개 주소와 같아야 한다
 #   ECHO_ENVIRONMENT            앱 화면에 보일 환경 이름 (기본 onprem)
 #   CF_TUNNEL_CREDENTIALS_FILE  `cloudflared tunnel create` 가 만든 자격 증명 JSON. 없으면 터널을 설치하지 않는다
+#   K3S_API_HOST                k3s 창구 공개 주소(터널). 주면 echo-was 실제 실행기가 이 주소로 배포한다(README "echo-was 실행기 연결")
 #   SWAP_SIZE_MB                메모리가 3GB 미만이고 스왑이 없으면 만들 크기 (0 이면 만들지 않음)
 set -euo pipefail
 
@@ -26,6 +27,7 @@ DEMO_HOST="${DEMO_HOST:-demo.onprem.localhost}"
 ECHO_ENVIRONMENT="${ECHO_ENVIRONMENT:-onprem}"
 CF_TUNNEL_CREDENTIALS_FILE="${CF_TUNNEL_CREDENTIALS_FILE:-}"
 SWAP_SIZE_MB="${SWAP_SIZE_MB:-2048}"
+K3S_API_HOST="${K3S_API_HOST:-}"
 
 log() { printf '[onprem] %s\n' "$*"; }
 die() {
@@ -47,6 +49,8 @@ command -v curl >/dev/null || die "curl 이 필요하다"
 # 값이 매니페스트에 그대로 들어가므로 모양을 먼저 검사한다.
 [[ "$DEMO_HOST" =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] || die "DEMO_HOST 형식이 아니다: $DEMO_HOST"
 [[ "$ECHO_ENVIRONMENT" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || die "ECHO_ENVIRONMENT 형식이 아니다: $ECHO_ENVIRONMENT"
+[ -z "$K3S_API_HOST" ] || [[ "$K3S_API_HOST" =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] || die "K3S_API_HOST 형식이 아니다: $K3S_API_HOST"
+[ -z "$K3S_API_HOST" ] || [ -n "$CF_TUNNEL_CREDENTIALS_FILE" ] || die "K3S_API_HOST 는 터널(CF_TUNNEL_CREDENTIALS_FILE)과 같이 쓴다"
 [[ "$DEMO_IMAGE" =~ ^[a-z0-9./_:-]+@sha256:[0-9a-f]{64}$ ]] || die "DEMO_IMAGE 는 digest 로 고정한다 (<이미지>@sha256:...): $DEMO_IMAGE"
 if [ -n "$CF_TUNNEL_CREDENTIALS_FILE" ]; then
   [ -r "$CF_TUNNEL_CREDENTIALS_FILE" ] || die "CF_TUNNEL_CREDENTIALS_FILE 을 읽을 수 없다: $CF_TUNNEL_CREDENTIALS_FILE"
@@ -98,6 +102,24 @@ render() { # 자리표시를 값으로 바꾼다 (값은 위에서 형식 검사
     -e "s|__CONFIG_HASH__|${CONFIG_HASH:-}|g" "$1"
 }
 
+# 터널 설정의 창구 규칙 자리(# __K3S_API_RULE__)를 채우거나 지운다.
+api_rule() {
+  if [ -z "$K3S_API_HOST" ]; then
+    grep -v '# __K3S_API_RULE__'
+    return
+  fi
+  awk -v host="$K3S_API_HOST" '
+    /# __K3S_API_RULE__/ {
+      print "      - hostname: " host
+      print "        service: https://kubernetes.default.svc.cluster.local:443"
+      print "        originRequest:"
+      print "          caPool: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+      print "          originServerName: kubernetes.default.svc.cluster.local"
+      next
+    }
+    { print }'
+}
+
 kc apply -f "$HERE/manifests/namespaces.yaml" >/dev/null
 
 # DB 비밀번호는 처음 한 번만 만든다. 이미 초기화된 PostgreSQL 의 비밀번호와 어긋나지 않게 다시 만들지 않는다.
@@ -121,6 +143,13 @@ kc -n echo-demo rollout status statefulset/demo-db --timeout=300s
 kc -n echo-demo rollout status deploy/demo-pgbouncer --timeout=180s
 kc -n echo-demo rollout status deploy/demo-app --timeout=300s
 
+# ---------- 3-b. echo-was 실행기 신원·권한 (manifests/echo-executor.yaml) ----------
+# 정책(ValidatingAdmissionPolicy)을 먼저 받아들이게 한 뒤 토큰이 채워질 때까지 기다린다. 토큰은 화면에 찍지 않는다.
+log "echo-was 실행기 신원·권한 적용 (echo-system/echo-executor, 네임스페이스 라벨 정책)"
+kc apply -f "$HERE/manifests/echo-executor.yaml" >/dev/null
+# shellcheck disable=SC2016 # 안쪽 셸에서 펼친다
+wait_for "실행기 토큰 채움" 60 sh -c '[ -n "$(k3s kubectl -n echo-system get secret echo-executor-token -o jsonpath="{.data.token}")" ]'
+
 # ---------- 4. Cloudflare Tunnel 커넥터 (선택) ----------
 if [ -n "$CF_TUNNEL_CREDENTIALS_FILE" ]; then
   log "터널 커넥터 적용 (터널 $TUNNEL_ID)"
@@ -130,8 +159,12 @@ if [ -n "$CF_TUNNEL_CREDENTIALS_FILE" ]; then
   CONFIG_HASH="$({
     sha256sum "$CF_TUNNEL_CREDENTIALS_FILE"
     sha256sum "$HERE/manifests/cloudflared.yaml"
+    echo "$K3S_API_HOST"
   } | sha256sum | cut -c1-16)"
-  render "$HERE/manifests/cloudflared.yaml" | kc apply -f - >/dev/null
+  if [ -n "$K3S_API_HOST" ]; then
+    log "터널에 k3s 창구 주소 추가: $K3S_API_HOST → kubernetes.default.svc (클러스터 CA 로 검증)"
+  fi
+  render "$HERE/manifests/cloudflared.yaml" | api_rule | kc apply -f - >/dev/null
   kc -n cloudflared rollout status deploy/cloudflared --timeout=180s
 else
   log "CF_TUNNEL_CREDENTIALS_FILE 없음: 터널은 설치하지 않는다 (기기 안에서만 접속)"
@@ -146,6 +179,10 @@ wait_for "인그레스 경유 /healthz" 60 check /healthz
 wait_for "인그레스 경유 /readyz (DB)" 120 check /readyz
 info="$(check /api/info)"
 log "기기 안 확인: /healthz·/readyz 통과, /api/info $info"
+if [ -n "$K3S_API_HOST" ]; then
+  # 터널 안쪽 확인: 커넥터가 창구에 닿는지(토큰 없이 부르면 401 이 정상). 바깥 확인은 README.
+  log "k3s 창구 공개 주소: https://${K3S_API_HOST}  (DNS: 'cloudflared tunnel route dns ${TUNNEL_ID} ${K3S_API_HOST}')"
+fi
 if [ -n "$CF_TUNNEL_CREDENTIALS_FILE" ]; then
   log "공개 주소: https://${DEMO_HOST}  (DNS 는 관리 기기에서 'cloudflared tunnel route dns ${TUNNEL_ID} ${DEMO_HOST}', README 참고)"
 fi

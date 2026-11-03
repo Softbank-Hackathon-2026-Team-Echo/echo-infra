@@ -1,6 +1,8 @@
 # Cloudflare Tunnel 커넥터. 기기에서 Cloudflare 로 나가는 연결만 쓰고, 들어오는 포트는 열지 않는다.
 # 자격 증명 JSON 은 Secret cloudflared/tunnel-credentials(install.sh 가 파일에서 만든다). 저장소에는 없다.
 # 모든 주소를 Traefik 으로 넘긴다. 어느 앱으로 갈지는 Traefik 이 Ingress 의 Host 로 정한다.
+# 예외 하나: K3S_API_HOST 를 주면 그 주소만 k3s 창구(쿠버네티스 API)로 보낸다(echo-was 실제 실행기용).
+#   창구 인증서는 클러스터 CA 로 검증한다(noTLSVerify 아님). CA 는 커넥터 파드에 자동으로 붙는 SA 묶음의 ca.crt.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,6 +15,7 @@ data:
     metrics: 0.0.0.0:2000
     no-autoupdate: true
     ingress:
+      # __K3S_API_RULE__
       - service: http://traefik.kube-system.svc.cluster.local:80
 ---
 apiVersion: apps/v1
