@@ -1,0 +1,45 @@
+# *.gcp-seoul.echoport.uk 와일드카드 인증서 → Secret ingress-nginx/wildcard-gcp-seoul-tls
+# (ingress-nginx-values.yaml 의 default-ssl-certificate 가 가리키는 자리. 실행기 Ingress 는 tls 칸 없이 이 기본 인증서를 쓴다.)
+# 먼저 Cloudflare 토큰 Secret 을 만든다(값은 Secret Manager 에서 바로 넘기고 화면에 찍지 않는다):
+#   gcloud secrets versions access latest --secret=echo-dev-echo-was-cloudflare-dns-token \
+#     | kubectl -n cert-manager create secret generic cloudflare-dns-token --from-file=api-token=/dev/stdin
+#   토큰 권한: echoport.uk 영역의 DNS 편집·영역 읽기만.
+# 적용: kubectl apply -f cluster-addons/gke/cert-manager/wildcard-gcp-seoul.yaml
+#   → kubectl -n ingress-nginx get certificate wildcard-gcp-seoul  (READY True 까지 1~3분)
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-dns
+  labels:
+    managed-by: jimin-manual
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-dns-account
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-dns-token
+              key: api-token
+        selector:
+          dnsZones:
+            - echoport.uk
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-gcp-seoul
+  namespace: ingress-nginx
+  labels:
+    managed-by: jimin-manual
+spec:
+  secretName: wildcard-gcp-seoul-tls
+  dnsNames:
+    - "*.gcp-seoul.echoport.uk"
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-dns
+  privateKey:
+    rotationPolicy: Always
