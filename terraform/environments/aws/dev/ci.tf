@@ -114,9 +114,14 @@ resource "aws_iam_role_policy" "ci_build_ecr" {
 
 # ---------- 배포 실행기: 관제탑 GSA 의 Google ID 토큰으로 받는 역할 (contracts/executor-credentials.md §2) ----------
 # Google 공급자는 계정에 하나다. 역할이 늘어도 이 리소스는 그대로 쓴다.
+#
+# Google ID 토큰은 azp(= 서비스 계정 고유 ID)가 있어서, AWS STS 는 키 accounts.google.com:aud 를
+# 토큰의 azp 로 채우고 토큰의 진짜 aud 는 accounts.google.com:oaud 로 넘긴다(IAM 조건 키 문서
+# "accounts.google.com:aud"). 공급자 client_id_list 도 azp 와 맞아야 한다. 맞지 않으면 STS 는
+# 400 InvalidIdentityToken("could not be validated")을 낸다(11/4 운영 실제 실행기 첫 배포에서 확인).
 resource "aws_iam_openid_connect_provider" "google" {
   url            = "https://accounts.google.com"
-  client_id_list = ["sts.amazonaws.com"]
+  client_id_list = ["sts.amazonaws.com", var.executor_google_service_account_id]
 }
 
 resource "aws_iam_role" "executor" {
@@ -129,8 +134,10 @@ resource "aws_iam_role" "executor" {
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = {
-          "accounts.google.com:aud" = "sts.amazonaws.com"
-          "accounts.google.com:sub" = var.executor_google_service_account_id
+          # aud = 토큰 azp(서비스 계정 고유 ID), oaud = 토큰 aud(메타데이터 서버에 준 audience).
+          "accounts.google.com:aud"  = var.executor_google_service_account_id
+          "accounts.google.com:oaud" = "sts.amazonaws.com"
+          "accounts.google.com:sub"  = var.executor_google_service_account_id
         }
       }
     }]
