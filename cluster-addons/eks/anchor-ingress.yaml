@@ -27,12 +27,21 @@ metadata:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
     alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-northeast-1:706878591119:certificate/a3bc8739-5af0-43d9-b7ad-64e64639dfe8
     alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+    # 진입점 Envoy 의 헬스체크는 Host=aws 로 GET /healthz 를 부른다. 어느 앱 규칙에도 안 맞는 Host 라 닻이 받으므로 200 으로 답한다.
+    alb.ingress.kubernetes.io/actions.response-200: '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"200","messageBody":"ok"}}'
     alb.ingress.kubernetes.io/actions.response-404: '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"404","messageBody":"not found"}}'
 spec:
   ingressClassName: alb
   rules:
     - http:
         paths:
+          - path: /healthz
+            pathType: Exact
+            backend:
+              service:
+                name: response-200
+                port:
+                  name: use-annotation
           - path: /
             pathType: Prefix
             backend:
