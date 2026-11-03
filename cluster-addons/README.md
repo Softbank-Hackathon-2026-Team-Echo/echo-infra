@@ -18,7 +18,7 @@ echo-was 실제 배포 실행기(`EXECUTOR_MODE=real`)는 앱마다 Ingress 를 
 | ACM `*.aws-tokyo.echoport.uk` | `arn:aws:acm:ap-northeast-1:706878591119:certificate/a3bc8739-5af0-43d9-b7ad-64e64639dfe8` | 11/3 23:33 ISSUED, 11/4 닻 Ingress 443 적용. 진입점 VM 에서 `https://probe.aws-tokyo.echoport.uk/` 404 + Amazon 인증서 확인 |
 | cert-manager 와일드카드 | `ingress-nginx/wildcard-gcp-seoul-tls` | 적용됨(지민). 진입점 VM 에서 `https://probe.gcp-seoul.echoport.uk/` 404 + Let's Encrypt 인증서 확인 |
 
-진입점 업스트림(아래 1번)은 아직 `demo-app/` 수동 배치 주소다. 수동 demo-app 에는 Ingress 가 없어서 지금 바꾸면 `shop.echoport.uk` 가 404 가 된다. echo-was `EXECUTOR_MODE=real` 전환과 같은 때 바꾼다.
+진입점 업스트림은 11/4 01:30 공유 문으로 바꿨다(`aws` = 닻 ALB:80, `gcp` = 10.60.0.8:80, Envoy 가 본 healthy aws 2·gcp 1). 그 뒤로 진입점으로 오는 요청은 실행기가 올린 앱 Ingress 에만 닿고, 수동 `demo-app/` 은 더 쓰지 않는다(실제 배포가 한 번 성공한 뒤 내린다). 닻의 `/healthz` 는 Envoy 헬스체크용 고정 200 이다.
 
 ## 설치 (사람이, 데스크톱에서)
 
