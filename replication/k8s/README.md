@@ -17,7 +17,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 |---|---|
 | `aws-tokyo/` | A: 네임스페이스·Postgres·PgBouncer(도현 1차안, 적용됨) + `30-expose.yaml`(NLB) + TLS(`40-tls.md`·`tls-patch.json`) + `pgbouncer-emptydir-patch.yaml`(ini 를 즉시 바꿀 수 있게) |
 | `gcp-seoul/` | B: 같은 구성(처음부터 TLS·emptyDir ini 포함). PgBouncer 백엔드 자리표시 `__A_HOST__` |
-| `scripts/` | `subscribe.sh`(A→B 세우기) · `lag.sh` · `cutover.sh` · `rollback.sh` · `verify.sh`(누락·중복 대조) · `common.sh` |
+| `scripts/` | `subscribe.sh`(A→B 세우기) · `lag.sh` · `cutover.sh` · `rollback.sh` · `verify.sh`(누락·중복 대조) · `writer.sh`(진입점 경유 쓰기 부하) · `rehearsal.sh`(한 번에: 대조→컷오버→대조→롤백→대조, `rehearsals/` 에 기록) · `common.sh` |
 
 ## 적용 순서 (사람이, 데스크톱에서 · 인프라 담당 확인 뒤)
 
