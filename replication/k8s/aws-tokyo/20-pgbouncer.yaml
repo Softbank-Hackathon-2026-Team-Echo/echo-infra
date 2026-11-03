@@ -1,0 +1,76 @@
+# PgBouncer — 앱과 A Postgres 사이. 컷오버는 이 백엔드를 A→B 로 바꿔 이뤄진다(#7).
+# 인증은 scram + auth_query: pgbouncer 가 pgbouncer_auth 로 붙어 pg_shadow 를 조회한다.
+# (로컬 PoC 의 trust 를 실제 배포용 scram 으로 바꾼 것)
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: echo-pgbouncer-ini
+  namespace: echo-data
+data:
+  pgbouncer.ini: |
+    [databases]
+    app = host=echo-pg port=5432 dbname=app
+
+    [pgbouncer]
+    listen_addr = 0.0.0.0
+    listen_port = 6432
+    auth_type = scram-sha-256
+    auth_file = /etc/pgbouncer/userlist.txt
+    auth_user = pgbouncer_auth
+    auth_query = SELECT uname, phash FROM public.pgbouncer_user_lookup($1)
+    admin_users = pgbouncer_auth
+    pool_mode = transaction
+    max_client_conn = 500
+    default_pool_size = 25
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-pgbouncer
+  namespace: echo-data
+  labels: { app: echo-pgbouncer }
+spec:
+  type: ClusterIP
+  selector: { app: echo-pgbouncer }
+  ports:
+    - name: pgbouncer
+      port: 6432
+      targetPort: 6432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-pgbouncer
+  namespace: echo-data
+spec:
+  replicas: 1          # 컷오버 때 ini 를 바꿔 RELOAD 하므로 1 로 둔다(여러 개면 repoint 조율 필요)
+  selector:
+    matchLabels: { app: echo-pgbouncer }
+  template:
+    metadata:
+      labels: { app: echo-pgbouncer }
+    spec:
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:latest   # TODO: 버전·digest 고정(PoC 와 동일 이미지)
+          ports:
+            - { name: pgbouncer, containerPort: 6432 }
+          volumeMounts:
+            - { name: ini, mountPath: /etc/pgbouncer/pgbouncer.ini, subPath: pgbouncer.ini }
+            - { name: userlist, mountPath: /etc/pgbouncer/userlist.txt, subPath: userlist.txt }
+          readinessProbe:
+            tcpSocket: { port: 6432 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { memory: "128Mi" }
+      volumes:
+        - name: ini
+          configMap: { name: echo-pgbouncer-ini }
+        - name: userlist
+          secret:
+            secretName: echo-pg-secret
+            items:
+              - { key: userlist.txt, path: userlist.txt }

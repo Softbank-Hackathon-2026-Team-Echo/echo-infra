@@ -1,0 +1,124 @@
+# 도쿄 A Postgres (Primary, publisher). self-managed StatefulSet (ADR-0004: RDS 아님).
+# 논리 복제를 켜고(wal_level=logical), 복제 전용 유저와 FOR ALL TABLES 발행을 둔다.
+# 지금은 클러스터 내부(ClusterIP)만. B(서울) cross-cloud 연결·TLS·외부 노출은 다음 단계.
+---
+# 초기화 스크립트: 첫 기동(빈 데이터 디렉터리)에서 한 번만 돈다.
+# 비밀번호는 env(Secret)에서 받아 psql 변수(:'var', 안전 인용)로 넣는다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: echo-pg-init
+  namespace: echo-data
+data:
+  01-bootstrap.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+      -v app_pw="$APP_PASSWORD" -v repl_pw="$REPL_PASSWORD" -v pgb_pw="$PGB_AUTH_PASSWORD" <<'EOSQL'
+    -- 앱 쓰기 계정 (앱·PgBouncer 가 쓰는 계정). 데모용 넓은 권한. 실제는 최소 권한으로 좁힌다.
+    CREATE ROLE app_rw LOGIN PASSWORD :'app_pw';
+    GRANT CONNECT ON DATABASE app TO app_rw;
+    GRANT ALL ON SCHEMA public TO app_rw;           -- PG15+ public 은 기본 CREATE 권한 없음
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO app_rw;
+
+    -- 복제 전용 계정 (B 가 구독). REPLICATION + 모든 테이블 읽기(초기 복사용).
+    CREATE ROLE repl_user LOGIN REPLICATION PASSWORD :'repl_pw';
+    GRANT pg_read_all_data TO repl_user;
+
+    -- PgBouncer auth_query 계정: pgbouncer 가 이 계정으로 붙어 user_lookup 을 호출한다.
+    CREATE ROLE pgbouncer_auth LOGIN PASSWORD :'pgb_pw';
+    CREATE FUNCTION public.pgbouncer_user_lookup(i_username text, OUT uname text, OUT phash text)
+      RETURNS record LANGUAGE sql SECURITY DEFINER AS
+      $$ SELECT usename, passwd FROM pg_catalog.pg_shadow WHERE usename = i_username $$;
+    REVOKE ALL ON FUNCTION public.pgbouncer_user_lookup(text) FROM PUBLIC;
+    GRANT EXECUTE ON FUNCTION public.pgbouncer_user_lookup(text) TO pgbouncer_auth;
+
+    -- 정방향 발행: 앱이 무슨 테이블을 만들든 모두 복제한다(수퍼유저만 FOR ALL TABLES 가능).
+    CREATE PUBLICATION echo_pub FOR ALL TABLES;
+    EOSQL
+---
+# StatefulSet 안정 DNS 용 헤드리스 Service. 파드: echo-pg-0.echo-pg.echo-data.svc
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-pg
+  namespace: echo-data
+  labels: { app: echo-pg }
+spec:
+  clusterIP: None
+  selector: { app: echo-pg }
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: echo-pg
+  namespace: echo-data
+spec:
+  serviceName: echo-pg
+  replicas: 1
+  selector:
+    matchLabels: { app: echo-pg }
+  template:
+    metadata:
+      labels: { app: echo-pg }
+    spec:
+      securityContext:
+        fsGroup: 999            # postgres 이미지의 postgres 그룹. PVC 쓰기 권한
+      containers:
+        - name: postgres
+          image: postgres:17     # TODO: 운영 전 digest 고정(repo@sha256:...)
+          args:
+            - postgres
+            - -c
+            - wal_level=logical
+            - -c
+            - max_wal_senders=10
+            - -c
+            - max_replication_slots=10
+            - -c
+            - listen_addresses=*
+          ports:
+            - { name: postgres, containerPort: 5432 }
+          env:
+            - { name: POSTGRES_DB, value: app }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }  # 마운트 루트의 lost+found 회피
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: echo-pg-secret, key: POSTGRES_PASSWORD } }
+            - name: APP_PASSWORD
+              valueFrom: { secretKeyRef: { name: echo-pg-secret, key: APP_PASSWORD } }
+            - name: REPL_PASSWORD
+              valueFrom: { secretKeyRef: { name: echo-pg-secret, key: REPL_PASSWORD } }
+            - name: PGB_AUTH_PASSWORD
+              valueFrom: { secretKeyRef: { name: echo-pg-secret, key: PGB_AUTH_PASSWORD } }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+            - { name: init, mountPath: /docker-entrypoint-initdb.d }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "postgres", "-d", "app"] }
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "postgres", "-d", "app"] }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "250m", memory: "512Mi" }
+            limits: { memory: "1Gi" }
+      volumes:
+        - name: init
+          configMap:
+            name: echo-pg-init
+            defaultMode: 0755
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: ebs-csi-default-sc   # 이 클러스터의 기본 SC(ebs.csi.aws.com). `kubectl get sc` 로 확인함
+        resources:
+          requests:
+            storage: 10Gi
