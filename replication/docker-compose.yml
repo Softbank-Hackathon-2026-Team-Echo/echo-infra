@@ -1,0 +1,36 @@
+name: echo-replication-poc
+
+# #7 PostgreSQL 논리 복제 + PgBouncer 컷오버 로컬 PoC.
+# pg_a(원본, 도쿄 역할) → 논리 복제 → pg_b(대상, 서울 역할).
+# 앱/writer 는 pgbouncer(6432) 로만 붙고, 컷오버는 pgbouncer 백엔드를 A→B 로 바꾼다.
+# 로컬 PoC 라 trust 인증. 실제 배포는 TLS·Secrets Manager (ADR-0004).
+
+services:
+  pg_a:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_HOST_AUTH_METHOD: trust
+    command:
+      ["postgres", "-c", "wal_level=logical", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"]
+    ports: ["55441:5432"]
+    volumes:
+      # pgbouncer 와 같은 호스트 디렉터리. 컷오버 임계 구간을 pg_a 안 단일 exec 로
+      # 돌릴 때(네트워크 psql, docker exec 오버헤드 제외) repoint sed 를 여기서 한다.
+      - ./pgbouncer:/pgbouncer-conf
+
+  pg_b:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_HOST_AUTH_METHOD: trust
+    command:
+      ["postgres", "-c", "wal_level=logical", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"]
+    ports: ["55442:5432"]
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    depends_on: [pg_a, pg_b]
+    volumes:
+      - ./pgbouncer:/etc/pgbouncer   # 디렉터리 마운트 (cutover 가 ini 를 바꾸고 RELOAD 하므로 단일 파일 마운트 금지)
+    ports: ["6432:6432"]
