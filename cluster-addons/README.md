@@ -9,6 +9,17 @@ echo-was 실제 배포 실행기(`EXECUTOR_MODE=real`)는 앱마다 Ingress 를 
 
 왜 내부·제한인가: 앱(echo-demo-app)에 인증이 없다. 손님은 모두 진입점(34.158.202.103)으로 들어오고, 환경별 주소는 일꾼의 헬스체크가 VPC·NAT 안에서 부른다. 공개가 필요해지면 GKE 는 annotation 한 줄, EKS 는 `inbound-cidrs` 한 줄을 바꾼다(동옥 확인 뒤).
 
+## 적용된 값 (2026-11-03 밤, 동옥)
+
+| 항목 | 값 | 상태 |
+|---|---|---|
+| GKE ingress-nginx 내부 IP | `10.60.0.8` | 설치됨, 진입점 VM 에서 404 확인 |
+| EKS 닻 ALB | `echo-dev-apps-1403429363.ap-northeast-1.elb.amazonaws.com` | 80 만, SG 는 34.158.202.103·34.64.211.218 |
+| ACM `*.aws-tokyo.echoport.uk` | `arn:aws:acm:ap-northeast-1:706878591119:certificate/a3bc8739-5af0-43d9-b7ad-64e64639dfe8` | 검증 CNAME 등록 대기(지민) → ISSUED 뒤 아래 3번 |
+| cert-manager 와일드카드 | `ingress-nginx/wildcard-gcp-seoul-tls` | PR #28 병합, 적용은 지민 |
+
+진입점 업스트림(아래 1번)은 아직 `demo-app/` 수동 배치 주소다. 수동 demo-app 에는 Ingress 가 없어서 지금 바꾸면 `shop.echoport.uk` 가 404 가 된다. echo-was `EXECUTOR_MODE=real` 전환과 같은 때 바꾼다.
+
 ## 설치 (사람이, 데스크톱에서)
 
 ```bash

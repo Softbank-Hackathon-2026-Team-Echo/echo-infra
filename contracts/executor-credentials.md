@@ -80,7 +80,7 @@ echo-was 환경 행(`environments.config`)과 설정에 넣을 값. 주소·ARN 
 |---|---|---|---|
 | aws 환경 | `ingressDomain` | `aws-tokyo.echoport.uk` | AWS dev `var.apps_domain` |
 | aws 환경 | `ingressGroup` | `echo-apps` | `cluster-addons/eks/anchor-ingress.yaml` |
-| aws 환경 | `certificateArn` | `terraform output acm_apps_certificate_arn`(AWS dev, ISSUED 뒤) | `acm.tf` |
+| aws 환경 | `certificateArn` | `arn:aws:acm:ap-northeast-1:706878591119:certificate/a3bc8739-5af0-43d9-b7ad-64e64639dfe8`(ISSUED 뒤에 넣는다) | `acm.tf` 출력 `acm_apps_certificate_arn` |
 | aws 환경 | `roleArn` | 비움 → 설정 `EXECUTOR_AWS_ROLE_ARN` = `executor_role_arn` 출력값 | §2 |
 | gcp 환경 | `clusterLocation` | `asia-northeast3-a` | gcp-outputs |
 | gcp 환경 | `ingressDomain` | `gcp-seoul.echoport.uk` | `cluster-addons/gke` |
