@@ -37,6 +37,7 @@ terraform/
 ├─ environments/gcp/dev/       # GCP 환경 루트 (VPC·NAT·GKE·Artifact Registry·Budgets·CI 연합)
 └─ modules/                    # 재사용 모듈 (필요할 때)
 entrypoint/                # 고정 진입점 Envoy·weights-api·Prometheus·Grafana (entrypoint.tf 가 VM 에 싣는다)
+replication/               # 이전 엔진 — 논리 복제·컷오버·롤백 PoC(docker) + 도쿄 A 실배포 매니페스트(k8s/aws-tokyo/)
 contracts/                 # 다른 파트와의 출력값 계약
 specs/                     # 작업 SPEC
 scripts/check.sh           # fmt → validate → tflint
