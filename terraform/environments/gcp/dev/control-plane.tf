@@ -50,6 +50,14 @@ resource "google_secret_manager_secret_iam_member" "control_plane_accessor" {
   member    = "serviceAccount:${google_service_account.control_plane.email}"
 }
 
+# 관제탑 일꾼이 고정 진입점 가중치 API(PUT /weights · GET /counters)를 부를 때 쓰는 토큰.
+# 비밀 껍데기는 entrypoint.tf 가 만들고 값은 진입점 VM 이 넣는다. 관제탑은 읽기만 한다.
+resource "google_secret_manager_secret_iam_member" "control_plane_entry_token" {
+  secret_id = google_secret_manager_secret.entry["weights-token"].id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.control_plane.email}"
+}
+
 # api.echoport.uk 용 GKE 외부 Ingress 자원. Cloudflare DNS 레코드와 Kubernetes
 # Ingress 는 앱 담당이 출력값을 받아 연결한다.
 resource "google_compute_global_address" "control_plane" {
