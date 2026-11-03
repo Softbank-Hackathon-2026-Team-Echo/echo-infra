@@ -1,0 +1,129 @@
+# 서울 B Postgres (subscriber → 컷오버 뒤 primary). 도쿄 A(aws-tokyo/10-postgres.yaml)와 같은 계정·함수·발행을 둔다.
+# 양쪽이 대칭이라 정방향(A→B)·역방향(B→A) 복제와 컷오버·롤백 스크립트가 같은 모양으로 돈다.
+# TLS: Secret echo-pg-tls(자체 서명, README) 를 마운트해 ssl=on. 역방향 복제 때 A 가 인터넷을 건너 B 에 붙는다.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: echo-pg-init
+  namespace: echo-data
+data:
+  01-bootstrap.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+      -v app_pw="$APP_PASSWORD" -v repl_pw="$REPL_PASSWORD" -v pgb_pw="$PGB_AUTH_PASSWORD" <<'EOSQL'
+    CREATE ROLE app_rw LOGIN PASSWORD :'app_pw';
+    GRANT CONNECT ON DATABASE app TO app_rw;
+    GRANT ALL ON SCHEMA public TO app_rw;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO app_rw;
+
+    CREATE ROLE repl_user LOGIN REPLICATION PASSWORD :'repl_pw';
+    GRANT pg_read_all_data TO repl_user;
+
+    CREATE ROLE pgbouncer_auth LOGIN PASSWORD :'pgb_pw';
+    CREATE FUNCTION public.pgbouncer_user_lookup(i_username text, OUT uname text, OUT phash text)
+      RETURNS record LANGUAGE sql SECURITY DEFINER AS
+      $$ SELECT usename, passwd FROM pg_catalog.pg_shadow WHERE usename = i_username $$;
+    REVOKE ALL ON FUNCTION public.pgbouncer_user_lookup(text) FROM PUBLIC;
+    GRANT EXECUTE ON FUNCTION public.pgbouncer_user_lookup(text) TO pgbouncer_auth;
+
+    -- B 도 발행을 둔다: 컷오버 뒤 역방향(B→A) 복제의 출처. 구독자일 동안은 아무도 읽지 않는다.
+    CREATE PUBLICATION echo_pub FOR ALL TABLES;
+    EOSQL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-pg
+  namespace: echo-data
+  labels: { app: echo-pg }
+spec:
+  clusterIP: None
+  selector: { app: echo-pg }
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: echo-pg
+  namespace: echo-data
+spec:
+  serviceName: echo-pg
+  replicas: 1
+  selector:
+    matchLabels: { app: echo-pg }
+  template:
+    metadata:
+      labels: { app: echo-pg }
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:17
+          args:
+            - postgres
+            - -c
+            - wal_level=logical
+            - -c
+            - max_wal_senders=10
+            - -c
+            - max_replication_slots=10
+            - -c
+            - listen_addresses=*
+            - -c
+            - ssl=on
+            - -c
+            - ssl_cert_file=/etc/postgresql/tls/tls.crt
+            - -c
+            - ssl_key_file=/etc/postgresql/tls/tls.key
+          ports:
+            - { name: postgres, containerPort: 5432 }
+          env:
+            - { name: POSTGRES_DB, value: app }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: echo-pg-secret, key: POSTGRES_PASSWORD } }
+            - name: APP_PASSWORD
+              valueFrom: { secretKeyRef: { name: echo-pg-secret, key: APP_PASSWORD } }
+            - name: REPL_PASSWORD
+              valueFrom: { secretKeyRef: { name: echo-pg-secret, key: REPL_PASSWORD } }
+            - name: PGB_AUTH_PASSWORD
+              valueFrom: { secretKeyRef: { name: echo-pg-secret, key: PGB_AUTH_PASSWORD } }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+            - { name: init, mountPath: /docker-entrypoint-initdb.d }
+            - { name: tls, mountPath: /etc/postgresql/tls, readOnly: true }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "postgres", "-d", "app"] }
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "postgres", "-d", "app"] }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "250m", memory: "512Mi" }
+            limits: { memory: "1Gi" }
+      volumes:
+        - name: init
+          configMap:
+            name: echo-pg-init
+            defaultMode: 0755
+        - name: tls
+          secret:
+            secretName: echo-pg-tls
+            defaultMode: 0640
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard-rwo
+        resources:
+          requests:
+            storage: 10Gi

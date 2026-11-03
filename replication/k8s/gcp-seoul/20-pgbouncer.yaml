@@ -1,0 +1,87 @@
+# 서울 B PgBouncer — GCP 쪽 앱의 유일한 DB 접속구. 컷오버 전엔 백엔드가 **도쿄 A**(인터넷, TLS), 컷오버 뒤엔 B.
+# ini 는 init 컨테이너가 ConfigMap 에서 emptyDir 로 복사한다 → 컷오버 스크립트가 `sed` + `RELOAD` 로 즉시 바꾼다(subPath 마운트는 읽기 전용이라 못 바꾼다).
+# __A_HOST__ 는 A 의 NLB DNS(aws-tokyo/30-expose.yaml). README 의 적용 명령이 채운다.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: echo-pgbouncer-ini
+  namespace: echo-data
+data:
+  pgbouncer.ini: |
+    [databases]
+    app = host=__A_HOST__ port=5432 dbname=app
+
+    [pgbouncer]
+    listen_addr = 0.0.0.0
+    listen_port = 6432
+    auth_type = scram-sha-256
+    auth_file = /etc/pgbouncer/userlist.txt
+    auth_user = pgbouncer_auth
+    auth_query = SELECT uname, phash FROM public.pgbouncer_user_lookup($1)
+    admin_users = pgbouncer_auth
+    pool_mode = transaction
+    max_client_conn = 500
+    default_pool_size = 25
+    server_tls_sslmode = require
+    max_prepared_statements = 0
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-pgbouncer
+  namespace: echo-data
+  labels: { app: echo-pgbouncer }
+spec:
+  type: ClusterIP
+  selector: { app: echo-pgbouncer }
+  ports:
+    - name: pgbouncer
+      port: 6432
+      targetPort: 6432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-pgbouncer
+  namespace: echo-data
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: echo-pgbouncer }
+  template:
+    metadata:
+      labels: { app: echo-pgbouncer }
+    spec:
+      initContainers:
+        - name: copy-ini
+          image: busybox:1.37
+          command: ["sh", "-c", "cp /seed/pgbouncer.ini /etc/pgbouncer/pgbouncer.ini"]
+          volumeMounts:
+            - { name: seed, mountPath: /seed }
+            - { name: conf, mountPath: /etc/pgbouncer }
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:v1.26.1-p0
+          ports:
+            - { name: pgbouncer, containerPort: 6432 }
+          volumeMounts:
+            - { name: conf, mountPath: /etc/pgbouncer }
+            - { name: userlist, mountPath: /etc/pgbouncer/userlist.txt, subPath: userlist.txt }
+          readinessProbe:
+            tcpSocket: { port: 6432 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { memory: "128Mi" }
+      volumes:
+        - name: seed
+          configMap: { name: echo-pgbouncer-ini }
+        - name: conf
+          emptyDir: {}
+        - name: userlist
+          secret:
+            secretName: echo-pg-secret
+            items:
+              - { key: userlist.txt, path: userlist.txt }
