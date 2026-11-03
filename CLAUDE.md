@@ -39,6 +39,7 @@ terraform/
 └─ modules/                    # 재사용 모듈 (필요할 때)
 onprem/                    # 온프레 k3s: 어느 리눅스 기기든 install.sh 하나로 (hosts/ = 기기별 준비)
 entrypoint/                # 고정 진입점 Envoy·weights-api·Prometheus·Grafana (entrypoint.tf 가 VM 에 싣는다)
+replication/               # 이전 엔진 — 논리 복제·컷오버·롤백 PoC(docker) + 도쿄 A 실배포 매니페스트(k8s/aws-tokyo/)
 contracts/                 # 다른 파트와의 출력값 계약
 specs/                     # 작업 SPEC
 scripts/check.sh           # fmt → validate → tflint

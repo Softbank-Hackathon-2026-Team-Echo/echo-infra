@@ -28,7 +28,7 @@ flowchart LR
 | 고정 진입점 Envoy + 관측(Prometheus·Grafana) | `entrypoint/`, `terraform/environments/gcp/dev/entrypoint.tf` | 코드 있음, 로컬 e2e 통과 (이슈 #5·#9) |
 | GCP 관제탑 기반 (echo-was GSA·비밀·IP·TLS) | `terraform/environments/gcp/dev/control-plane.tf` | 코드·plan 완료, apply 전 ([infra-15](specs/infra-15-gcp-control-plane-foundation.md)) |
 | 온프레 k3s (어느 리눅스 기기든 같은 설치 + Cloudflare Tunnel) | `onprem/`, `terraform/environments/aws/onprem-demo` | 적용 (11/3, 시연 기기 AWS 서울 EC2, [infra-2](specs/infra-2-onprem-k3s.md)) |
-| 이전 엔진 (프록시·복제·롤백) | — | 이슈 #5~#8 |
+| 이전 엔진 — 복제·컷오버·롤백 (#7·#8) | `replication/` (로컬 PoC) · `replication/k8s/aws-tokyo/` (도쿄 A 매니페스트) | 로컬 PoC 검증(누락0·중복0, 쓰기정지 ≈0.3s·복귀 ≈0.46s) + 도쿄 A 1차안(apply 전) |
 
 ## 핵심 흐름
 
@@ -46,10 +46,11 @@ Terraform 1.16.4 · AWS provider ~> 6.67.0 · Google provider ~> 8.9.0 · tflint
 ```text
 terraform/{bootstrap,environments,modules}/
 entrypoint/     # 고정 진입점 Envoy·가중치 API·관측 스택 (VM 에 그대로 올라간다)
+replication/    # 이전 엔진 — 논리 복제·컷오버·롤백 PoC(docker) + 도쿄 A 실배포 매니페스트(k8s/aws-tokyo/)
 contracts/      # 다른 파트와의 출력값 계약
 specs/          # 작업 SPEC
 scripts/        # check.sh
-docs/           # references.md
+docs/           # references.md · adr/ · design/
 ```
 
 ## 빠른 시작
@@ -83,8 +84,8 @@ terraform -chdir=terraform/bootstrap/aws plan
 
 - AWS 도쿄 Primary와 GCP 서울 GKE·고정 진입점은 적용됐다.
 - echo-was는 아직 AWS 도쿄 EKS에서 실행 중이다. GCP 관제탑 기반을 apply하고 API 담당이 앱·관리용 DB를 옮겨야 재난 영향권에서 분리된다.
+- 데이터 복제·컷오버·롤백은 로컬 PoC로 **검증**했고(누락0·중복0, 쓰기정지 ≈0.3s·복귀 ≈0.46s), 도쿄 A Postgres **실배포 매니페스트 1차안**(`replication/k8s/aws-tokyo/`)까지 있다. 실제 클러스터 apply·cross-cloud 연결(TLS·서울 B)은 다음 단계다.
 - 온프레 k3s는 시연 기기(AWS 서울 EC2)에 올라가 공개 주소로 열려 있다. 고정 진입점(Envoy)에는 아직 붙지 않았다(#13).
-- 데이터 복제·롤백은 아직 없다.
 
 ## 문서
 
@@ -94,4 +95,6 @@ terraform -chdir=terraform/bootstrap/aws plan
 | [specs/infra-1-aws-foundation.md](specs/infra-1-aws-foundation.md) | AWS 기반 SPEC |
 | [specs/infra-15-gcp-control-plane-foundation.md](specs/infra-15-gcp-control-plane-foundation.md) | GCP 관제탑 기반 SPEC |
 | [contracts/aws-outputs.md](contracts/aws-outputs.md)·[contracts/gcp-outputs.md](contracts/gcp-outputs.md) | 출력값 계약 |
+| [specs/infra-7-postgres-logical-replication-cutover.md](specs/infra-7-postgres-logical-replication-cutover.md)·[infra-8-rollback-reverse-replication.md](specs/infra-8-rollback-reverse-replication.md) | 데이터 이전(컷오버)·롤백 SPEC |
+| [replication/README.md](replication/README.md) · [replication/k8s/aws-tokyo/README.md](replication/k8s/aws-tokyo/README.md) | 이전 엔진 PoC·검증값 / 도쿄 A 실배포 매니페스트 |
 | [docs/references.md](docs/references.md) | 참고·가져온 코드 기록 |
