@@ -35,7 +35,9 @@ terraform/
 ├─ bootstrap/{aws,gcp}/        # state 버킷 (관리자 로컬 state 1회 적용)
 ├─ environments/aws/dev/       # AWS 환경 루트 (VPC·EKS·ECR·Budgets·CI 역할)
 ├─ environments/gcp/dev/       # GCP 환경 루트 (VPC·NAT·GKE·Artifact Registry·Budgets·CI 연합)
+├─ environments/aws/onprem-demo/ # 시연에서 온프레로 간주하는 EC2 한 대 (서울, 인바운드 0)
 └─ modules/                    # 재사용 모듈 (필요할 때)
+onprem/                    # 온프레 k3s: 어느 리눅스 기기든 install.sh 하나로 (hosts/ = 기기별 준비)
 entrypoint/                # 고정 진입점 Envoy·weights-api·Prometheus·Grafana (entrypoint.tf 가 VM 에 싣는다)
 contracts/                 # 다른 파트와의 출력값 계약
 specs/                     # 작업 SPEC
@@ -52,7 +54,7 @@ docs/references.md         # 참고·가져온 코드 기록
 - **AWS CLI·Terraform 은 프로필 `echo`** 로 실행한다(`AWS_PROFILE=echo`). 다른 프로필(개인 계정)은 쓰지 않는다. GCP 는 `gcloud auth application-default login` 의 ADC 로, 서비스 계정 키 파일은 만들지 않는다.
 - **출력값 이름은 contracts 가 단일 출처.** 바꾸면 PR 체크리스트에 적는다.
 - **환경 하나를 명령 2개 이내로 다시 세운다**(NFR-16). 손으로 콘솔에서 만든 리소스는 남기지 않는다.
-- **다른 파트의 결정은 대신 내리지 않는다.** DB 위치(#4·#7)는 데이터 담당이 정하고, 이 저장소는 요청이 오면 반영한다. (11/2 20시 회의: 고정 진입점 #5 와 측정·관측 #9·#10 은 인프라 담당이 맡는다. 온프레 #2 는 일단 범위 밖)
+- **다른 파트의 결정은 대신 내리지 않는다.** DB 위치(#4·#7)는 데이터 담당이 정하고, 이 저장소는 요청이 오면 반영한다. (11/2 20시 회의: 고정 진입점 #5 와 측정·관측 #9·#10 은 인프라 담당이 맡는다. 온프레 #2 는 일단 범위 밖 → 11/3 담당 지민이 진행, `onprem/`)
 - **AWS·GCP 리소스를 손으로 만들거나 dev 루트를 apply 하는 것은 인프라 담당(서동옥) 확인 뒤에 한다.** 급해서 먼저 만들었으면 `managed-by=<이름>-manual` 태그를 붙이고 이슈에 적는다. Terraform 으로 옮길 때 import 블록을 쓴다(PR #16 참고).
 - 참고 코드는 파일 단위로 옮기고 출처를 커밋 본문과 `docs/references.md` 에 남긴다. 라이선스 없는 저장소는 허락 뒤에.
 

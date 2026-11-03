@@ -1,0 +1,4 @@
+# 복사해서 terraform.tfvars 로 쓴다. 기본값 그대로면 이 파일이 없어도 된다.
+# region         = "ap-northeast-2"
+# instance_type  = "t3.small"
+# root_volume_gb = 20
