@@ -24,8 +24,9 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.repository" = "assertion.repository"
   }
 
-  # plan 저장소(main·PR)와 빌드 저장소(main)만 통과한다. 저장소별 권한은 아래 SA 바인딩이 가른다.
-  attribute_condition = "assertion.repository in ${jsonencode(distinct(concat([module.github.plan_repository], module.github.build_repositories)))} && (assertion.ref == \"refs/heads/main\" || assertion.ref.startsWith(\"refs/pull/\"))"
+  # plan 저장소는 main·PR, 배포 권한이 있는 빌드 저장소는 main 만 통과한다.
+  # 저장소별 실제 권한은 아래 SA 바인딩이 추가로 가른다.
+  attribute_condition = "(assertion.repository == ${jsonencode(module.github.plan_repository)} && (assertion.ref == \"refs/heads/main\" || assertion.ref.startsWith(\"refs/pull/\"))) || (assertion.repository in ${jsonencode(module.github.build_repositories)} && assertion.ref == \"refs/heads/main\")"
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
