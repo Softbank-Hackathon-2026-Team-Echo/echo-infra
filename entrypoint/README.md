@@ -17,6 +17,25 @@
 
 파일: `config/envoy/envoy.yaml`(리스너·admin, 고정) / `/etc/envoy/dynamic/clusters.yaml`·`routes.yaml`(weights-api 가 생성, 파일 기반 xDS).
 
+## 왜 DNS 가중치가 아니라 프록시인가 (인프라 5 기록)
+
+DNS 가중치(Route 53 weighted, Cloudflare Load Balancing)로도 두 환경에 트래픽을 나눌 수는 있다. 쓰지 않는 이유:
+
+| 요구 | DNS 가중치 | 고정 진입점(Envoy) |
+|---|---|---|
+| 10 → 50 → 100% 가 **언제** 반영되나 | TTL 뒤에야, 그것도 리졸버·브라우저·OS 캐시가 TTL 을 지킬 때만. 실제 비율을 알 수 없다 | `PUT /weights` 즉시(파일 xDS, 재시작 없음). 로컬 측정 1초 안 |
+| 단계 승격 판정 "도착 환경이 N건 처리"(API 서버 8-1) | DNS 는 요청을 세지 못한다 | `/counters` 가 환경별 요청 수·5xx 를 즉시 센다 |
+| 장애 때 우회 | 헬스체크 페일오버도 TTL 에 묶인다(수십 초 + 캐시) | 능동 헬스체크 2초×2회 + aggregate 클러스터, 1초 안 |
+| 롤백 60초 안(NFR-05) | 보장 못 한다 | 가중치 되돌리기 한 번 |
+| 클라이언트 종류 | 모바일·기업 프록시·CDN 의 DNS 캐시를 통제할 수 없다 | 클라이언트는 한 주소만 본다 |
+| 벤더 중립(Beyond Lock-in) | Route 53 은 AWS, Cloudflare LB 는 유료·Cloudflare 종속 | Envoy 설정 하나가 어느 클라우드에서도 같다. 온프레도 `UPSTREAMS` 한 줄 |
+
+대가와 대응:
+
+- **프록시가 단일 장애점**이다 → 인프라 5.1(진입점 두 곳 + DNS 페일오버 PoC)에서 다룬다. DNS 는 **프록시 자체의 생존**에만 쓰고 환경 간 비율에는 쓰지 않는다(역할 분리).
+- 한 홉이 는다(서울 VM 경유, 도쿄 앱까지 왕복 +수십 ms) → 측정값을 그대로 공개한다(`/summary` p95).
+- 트래픽이 VM 한 대를 지난다 → e2-small 로 시연 50 rps 는 충분. 규모가 커지면 관리형 LB(Cloud Load Balancing + NEG) 뒤에 Envoy 를 여러 대 둔다.
+
 ## 가중치 바꾸기
 
 ```bash
