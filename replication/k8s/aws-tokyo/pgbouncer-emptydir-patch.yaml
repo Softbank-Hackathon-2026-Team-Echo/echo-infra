@@ -1,0 +1,29 @@
+# A PgBouncer 의 ini 를 emptyDir(초기값 = ConfigMap) 로 바꾸는 패치. 컷오버 스크립트가 `sed` + `RELOAD` 로 백엔드를 즉시 바꿀 수 있게 한다.
+# (지금 20-pgbouncer.yaml 은 ConfigMap subPath 마운트라 읽기 전용이고, ConfigMap 수정은 반영까지 최대 1분이라 컷오버 창에 못 쓴다.)
+# 적용: kubectl --context echo-dev-eks -n echo-data patch deploy echo-pgbouncer --patch-file replication/k8s/aws-tokyo/pgbouncer-emptydir-patch.yaml
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: copy-ini
+          image: busybox:1.37
+          command: ["sh", "-c", "cp /seed/pgbouncer.ini /etc/pgbouncer/pgbouncer.ini"]
+          volumeMounts:
+            - { name: seed, mountPath: /seed }
+            - { name: conf, mountPath: /etc/pgbouncer }
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:v1.26.1-p0
+          volumeMounts:
+            - { name: conf, mountPath: /etc/pgbouncer }
+            - { name: userlist, mountPath: /etc/pgbouncer/userlist.txt, subPath: userlist.txt }
+      volumes:
+        - name: seed
+          configMap: { name: echo-pgbouncer-ini }
+        - name: conf
+          emptyDir: {}
+        - name: userlist
+          secret:
+            secretName: echo-pg-secret
+            items:
+              - { key: userlist.txt, path: userlist.txt }
