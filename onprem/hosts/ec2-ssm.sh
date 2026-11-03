@@ -21,7 +21,7 @@ PARAM="${TUNNEL_PARAMETER:-/echo/onprem-demo/cf-tunnel-credentials}"
 payload="$(tar -C "$ONPREM" -czf - install.sh manifests | base64 | tr -d '\n')"
 
 envs=""
-for v in K3S_VERSION DEMO_IMAGE DEMO_HOST ECHO_ENVIRONMENT SWAP_SIZE_MB; do
+for v in K3S_VERSION DEMO_IMAGE DEMO_HOST ECHO_ENVIRONMENT SWAP_SIZE_MB K3S_API_HOST; do
   if [ -n "${!v:-}" ]; then
     [[ "${!v}" =~ ^[A-Za-z0-9./:@_+-]+$ ]] || {
       echo "$v 값에 쓸 수 없는 글자가 있다" >&2

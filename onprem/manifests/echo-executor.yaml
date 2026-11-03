@@ -1,0 +1,134 @@
+# echo-was 실제 실행기가 이 k3s 에 고객 앱을 배포할 때 쓰는 신원과 권한 (echo-was API 서버 3-2 SPEC 5.6).
+#
+#   클러스터 전체: 네임스페이스 만들기·보기·지우기, RoleBinding 만들기, ClusterRole echo-app-deployer 묶기(bind)만.
+#   앱 네임스페이스 안: 실행기가 네임스페이스를 만든 직후 RoleBinding(echo-app-deployer → 자기 SA)을 만들고
+#                      그 안에서만 Deployment·Service·Ingress·Secret 을 다룬다. exec·권한 변경 없음.
+#
+# 새 네임스페이스가 실행 중에 생기므로 RoleBinding 만들기는 클러스터 전체에 줄 수밖에 없다.
+# 그래서 아래 ValidatingAdmissionPolicy 가 RBAC 밖에서 한 번 더 막는다:
+#   - 이 SA 가 만들고 지우는 네임스페이스는 app.kubernetes.io/managed-by=echo-was 라벨이 있어야 한다
+#   - 이 SA 가 만드는 RoleBinding 은 그 라벨이 붙은 네임스페이스 안, echo-app-deployer → 자기 자신만
+# 그래서 이 토큰이 새어도 kube-system·echo-demo·cloudflared 같은 기존 네임스페이스는 건드리지 못한다.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: echo-system
+  labels:
+    app.kubernetes.io/part-of: echo-onprem
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: echo-executor
+  namespace: echo-system
+automountServiceAccountToken: false
+---
+# 만료 없는 SA 토큰(쿠버네티스가 채운다). echo-was 환경의 secretRef 로 넘긴다. 바꾸려면 이 Secret 을 지우고 다시 적용한다.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: echo-executor-token
+  namespace: echo-system
+  annotations:
+    kubernetes.io/service-account.name: echo-executor
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: echo-executor
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, create, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    verbs: [get, create]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    verbs: [bind]
+    resourceNames: [echo-app-deployer]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: echo-executor
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: echo-executor
+subjects:
+  - kind: ServiceAccount
+    name: echo-executor
+    namespace: echo-system
+---
+# 앱 네임스페이스 안에서만 RoleBinding 으로 쓰인다(ClusterRoleBinding 으로 묶지 않는다).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: echo-app-deployer
+rules:
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [services, secrets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods, pods/log, events]
+    verbs: [get, list, watch]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: echo-executor-managed-namespaces
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [namespaces]
+      - apiGroups: [rbac.authorization.k8s.io]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [rolebindings]
+  matchConditions:
+    - name: is-echo-executor
+      expression: "request.userInfo.username == 'system:serviceaccount:echo-system:echo-executor'"
+  variables:
+    - name: isNamespace
+      expression: "request.resource.resource == 'namespaces'"
+    - name: target
+      expression: "request.operation == 'DELETE' ? oldObject : object"
+  validations:
+    - expression: >-
+        !variables.isNamespace ||
+        (has(variables.target.metadata.labels) &&
+         'app.kubernetes.io/managed-by' in variables.target.metadata.labels &&
+         variables.target.metadata.labels['app.kubernetes.io/managed-by'] == 'echo-was')
+      message: "echo-executor 는 app.kubernetes.io/managed-by=echo-was 라벨이 붙은 네임스페이스만 만들고 바꾸고 지운다"
+    - expression: >-
+        variables.isNamespace ||
+        (namespaceObject != null && has(namespaceObject.metadata.labels) &&
+         'app.kubernetes.io/managed-by' in namespaceObject.metadata.labels &&
+         namespaceObject.metadata.labels['app.kubernetes.io/managed-by'] == 'echo-was')
+      message: "echo-executor 는 echo-was 가 만든 네임스페이스 안에만 RoleBinding 을 만든다"
+    - expression: >-
+        variables.isNamespace ||
+        (object.roleRef.kind == 'ClusterRole' && object.roleRef.name == 'echo-app-deployer' &&
+         has(object.subjects) && size(object.subjects) > 0 &&
+         object.subjects.all(s, s.kind == 'ServiceAccount' && s.name == 'echo-executor' && s.namespace == 'echo-system'))
+      message: "echo-executor 의 RoleBinding 은 echo-app-deployer 를 자기 자신에게만 묶는다"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: echo-executor-managed-namespaces
+spec:
+  policyName: echo-executor-managed-namespaces
+  validationActions: [Deny]

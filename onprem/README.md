@@ -90,6 +90,36 @@ curl https://<DEMO_HOST>/api/info    # {"environment":"onprem",...}
 | M1 맥북 안 Lima VM (Ubuntu 24.04) | arm64 | 설치 + 터널 공개 주소 200, 재실행 12초(바뀐 것 없음) |
 | AWS 서울 EC2 t3.small (Ubuntu 24.04, 2GB + 스왑 2GB) | amd64 | 설치 1분 35초, 공개 주소 200, 쓰기 5건 누락 0·중복 0, 공인 IP 80 직접 접속 차단 |
 
+## echo-was 실행기 연결 (k3s 창구 + 실행기 신원)
+
+echo-was 실제 실행기(API 서버 3-2)는 이 k3s 에 고객 앱을 직접 배포한다. 기기에 들어오는 포트는 여전히 0개다. 창구(쿠버네티스 API)도 같은 터널로 연다.
+
+```text
+echo-was 일꾼 ─HTTPS(Bearer SA 토큰)─▶ Cloudflare(K3S_API_HOST) ─터널─▶ cloudflared ─HTTPS(클러스터 CA 검증)─▶ kubernetes.default.svc
+```
+
+| 무엇 | 어디 |
+|---|---|
+| 창구 주소 규칙 | `K3S_API_HOST` 를 주면 `manifests/cloudflared.yaml` 의 `# __K3S_API_RULE__` 자리에 들어간다. 원본 인증서는 클러스터 CA 로 검증(`caPool` + `originServerName`, `noTLSVerify` 아님) |
+| 실행기 신원 | `manifests/echo-executor.yaml`: SA `echo-system/echo-executor` + 만료 없는 토큰 Secret `echo-executor-token` |
+| 권한 | 클러스터: 네임스페이스 get·list·create·delete, RoleBinding get·create, ClusterRole `echo-app-deployer` bind 만. 앱 네임스페이스 안: 실행기가 만든 RoleBinding 으로 `echo-app-deployer`(Deployment·ReplicaSet·Service·Secret·Ingress 쓰기, Pod·로그·이벤트 읽기) |
+| 울타리 | ValidatingAdmissionPolicy `echo-executor-managed-namespaces`: 이 SA 는 `app.kubernetes.io/managed-by=echo-was` 라벨 네임스페이스만 만들고 지우며, RoleBinding 은 그 안에서 `echo-app-deployer` → 자기 자신만 |
+
+```bash
+# 1) 창구 주소 DNS (관리 기기에서 한 번, 프록시 CNAME). 시연 기기는 k3s-k2f6xje5.echoport.uk
+cloudflared tunnel route dns echo-onprem-demo k3s-<무작위 8자>.echoport.uk
+# 2) 설치(다시 돌려도 됨) — 기존 앱·터널은 그대로, 창구 규칙·실행기 신원만 더해진다
+DEMO_HOST=demo-onprem-<8자>.echoport.uk K3S_API_HOST=k3s-<8자>.echoport.uk onprem/hosts/ec2-ssm.sh <instance_id> --tunnel
+# 3) 토큰을 echo-was 비밀 저장소로(평문이 SSM 출력·화면에 남지 않게 봉인해서 꺼낸다)
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out k.pem && openssl pkey -in k.pem -pubout -out k.pub
+onprem/hosts/ec2-ssm-executor-token.sh <instance_id> k.pub > sealed.txt
+onprem/hosts/ec2-ssm-executor-token.sh --open k.pem < sealed.txt \
+  | gcloud secrets versions add echo-dev-echo-was-onprem-executor-token --data-file=-
+rm -f k.pem k.pub sealed.txt
+```
+
+확인: `curl https://<K3S_API_HOST>/version` → 401(토큰 없음, 창구까지 닿음). 토큰을 붙인 `GET /api/v1/namespaces/kube-system` 은 200, `kubectl --as=system:serviceaccount:echo-system:echo-executor create ns x` 는 정책으로 거절.
+
 ## 한계·다음 이슈
 
 - **고정 진입점(Envoy)에 세 번째 갈래로 붙이기는 #13 몫이다.** Envoy 는 지금 `{서비스}.echoport.uk` Host 를 그대로 넘기는데, 온프레는 터널(Cloudflare)을 거쳐야 닿는다. Envoy 업스트림을 `demo-onprem-…echoport.uk:443` 으로 두면 TLS(SNI)와 Host 바꾸기(`host_rewrite_literal`)가 필요하다. 그대로 `*.echoport.uk` 를 보내면 와일드카드 레코드가 Envoy 자신을 가리켜 고리가 생긴다. 온프레 Ingress 가 고정 Host 도 받게 하는 방법도 있다.
