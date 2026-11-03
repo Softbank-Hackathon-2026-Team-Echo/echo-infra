@@ -1,0 +1,14 @@
+# 온프레 k3s 네임스페이스. echo-demo = 관리 대상 앱, cloudflared = 터널 커넥터.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: echo-demo
+  labels:
+    app.kubernetes.io/part-of: echo-onprem
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudflared
+  labels:
+    app.kubernetes.io/part-of: echo-onprem
