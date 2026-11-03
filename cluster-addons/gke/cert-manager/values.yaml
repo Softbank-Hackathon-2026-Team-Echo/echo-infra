@@ -1,0 +1,27 @@
+# GKE cert-manager (API 서버 3-2 §7 P4 나머지): *.gcp-seoul.echoport.uk 와일드카드 인증서를 Let's Encrypt DNS-01 로 받는다.
+# 설치: helm upgrade --install cert-manager jetstack/cert-manager --version v1.21.3 -n cert-manager --create-namespace \
+#         -f cluster-addons/gke/cert-manager/values.yaml --wait
+# 웹훅은 기본 포트 10250 을 쓴다. 비공개 GKE 의 컨트롤 플레인 → 노드 방화벽이 기본으로 여는 포트라 추가 규칙이 필요 없다.
+crds:
+  enabled: true
+replicaCount: 1
+resources:
+  requests:
+    cpu: 20m
+    memory: 64Mi
+webhook:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+cainjector:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+# DNS-01 전파 확인은 공개 재귀 DNS 로 한다(클러스터 DNS 가 Cloudflare 레코드를 늦게 볼 수 있다).
+extraArgs:
+  - --dns01-recursive-nameservers-only
+  - --dns01-recursive-nameservers=1.1.1.1:53,8.8.8.8:53
+podLabels:
+  managed-by: jimin-manual
