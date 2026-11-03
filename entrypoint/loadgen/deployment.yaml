@@ -1,0 +1,54 @@
+# 시연용 합성 트래픽. 평소 0 개, 시연 때 1 개로 올린다 (make loadgen-on / loadgen-off).
+# GKE(서울)에서 Cloud NAT 를 거쳐 진입점 공인 주소로 보낸다 — 도쿄 재난 장면에서도 끊기지 않는다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  labels:
+    app.kubernetes.io/name: loadgen
+    app.kubernetes.io/part-of: echo-entrypoint
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loadgen
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: loadgen
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 12345
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: k6
+          image: grafana/k6:2.3.0
+          command: ["/bin/sh", "-c"]
+          # 60초마다 요약 한 번 (kubectl logs 로 초당 요청·실패율 확인). 1초 쉬고 다시.
+          args: ["while true; do k6 run --quiet /scripts/loadgen.js; sleep 1; done"]
+          envFrom:
+            - configMapRef:
+                name: loadgen-config
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: script
+          configMap:
+            name: loadgen-script

@@ -48,9 +48,11 @@ docker compose down             # -v 를 붙이면 가중치·측정 데이터�
 | 패널 | 출처 |
 |---|---|
 | 현재 가중치 | weights-api `/metrics` `entrypoint_weight{env}` |
-| 실행기용 요약(JSON) | weights-api `GET /summary?window=30s` (Bearer): 환경별 rps·5xx 비율·p95·healthy + 전체 + 가중치. Prometheus 를 읽는다 |
+| 참고용 요약(JSON) | weights-api `GET /summary?window=30s` (Bearer): 환경별 rps·5xx 비율·p95·healthy + 전체 + 가중치. Prometheus 를 읽어 수집 간격(5초)보다 짧은 구간은 비어 있다(`null`) |
 | healthy 호스트 수 | Envoy `envoy_cluster_membership_healthy{aws,gcp}` |
-| 요청 수·5xx 비율 (환경별) | Envoy `envoy_cluster_upstream_rq_total`·`upstream_rq_xx` — aggregate 아래 **실제 환경 클러스터**에 기록된다 |
+| 요청 수 (환경별) | Envoy `envoy_cluster_upstream_rq_total` — aggregate 아래 **실제 환경 클러스터**에도 기록된다 |
+| 5xx 비율 (경로별) | Envoy `envoy_cluster_upstream_rq_xx`·`upstream_rq_completed` — 응답 코드는 **경로 클러스터**(`aws_then_gcp`)에만 기록된다(로컬 확인 11/3). 첫 환경이 건강하면 그 환경의 비율이다 |
+| 건수 기반 판정(JSON) | weights-api `GET /counters` (Bearer): Envoy 시작 이후 환경별 누적 `requests`·`errors_5xx`·`hosts`. Envoy admin `/clusters` 의 호스트 통계(`rq_total`·`rq_error`) 합이라 Prometheus 수집 간격과 무관하게 즉시 반영된다. 값이 줄면(호스트 교체·재시작) 기준값을 다시 잡는다 |
 | p95 지연 | Envoy `envoy_cluster_upstream_rq_time` 히스토그램 — 라우트의 **경로 클러스터**(`aws_then_gcp`)에 기록된다. 첫 환경이 건강하면 그 환경의 지연이다 |
 | 진입점 전체 요청·5xx | `envoy_http_downstream_rq_*` |
 

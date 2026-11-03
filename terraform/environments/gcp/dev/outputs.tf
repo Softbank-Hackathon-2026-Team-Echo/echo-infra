@@ -73,8 +73,13 @@ output "entrypoint_ip" {
 }
 
 output "entrypoint_weights_url" {
-  description = "echo-was 실행기가 부르는 가중치 API (Bearer 토큰: Secret Manager)"
+  description = "가중치 API 공인 주소 (entrypoint_admin_cidrs 에서만). VPC 밖에서 부를 때"
   value       = "http://${google_compute_address.entry.address}:8080"
+}
+
+output "entrypoint_weights_internal_url" {
+  description = "echo-was(GKE) 가 부르는 가중치 API 내부 주소. 같은 VPC 라 토큰이 인터넷을 거치지 않는다 (방화벽 internal)"
+  value       = "http://${google_compute_instance.entry.network_interface[0].network_ip}:8080"
 }
 
 output "entrypoint_grafana_url" {

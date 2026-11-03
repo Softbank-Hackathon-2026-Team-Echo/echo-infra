@@ -181,7 +181,7 @@
     {
       "id": 4,
       "type": "timeseries",
-      "title": "5xx 비율 (환경별)",
+      "title": "5xx 비율 (경로별: 첫 환경 기준, 환경이 건강하면 그 환경 값)",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -219,7 +219,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class=\"5\",envoy_cluster_name=~\"aws|gcp\"}[30s])) / sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total{envoy_cluster_name=~\"aws|gcp\"}[30s]))",
+          "expr": "sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class=\"5\",envoy_cluster_name=~\".+_then_.+\"}[30s])) / sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_completed{envoy_cluster_name=~\".+_then_.+\"}[30s]))",
           "legendFormat": "{{envoy_cluster_name}}",
           "refId": "A"
         }

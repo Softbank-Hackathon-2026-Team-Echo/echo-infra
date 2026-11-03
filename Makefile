@@ -4,12 +4,13 @@
 #   make down [CLOUD=gcp] : destroy (state 버킷은 남긴다)
 #   make plan [CLOUD=gcp] : 바뀔 내용만 본다
 #   make check            : fmt · validate · tflint
+#   make loadgen-apply|loadgen-on|loadgen-off : 시연용 합성 트래픽 (GKE, entrypoint/loadgen)
 
 CLOUD ?= aws
 ROOT  := terraform/environments/$(CLOUD)/dev
 export AWS_PROFILE ?= echo
 
-.PHONY: up down plan check init
+.PHONY: up down plan check init loadgen-apply loadgen-on loadgen-off
 
 init:
 	@test -d $(ROOT) || { echo "$(ROOT) 없음: CLOUD 는 aws 또는 gcp"; exit 1; }
@@ -28,3 +29,14 @@ down: init
 
 check:
 	bash scripts/check.sh
+
+# ---------- 시연용 합성 트래픽 (GKE 안, 평소 0 개) ----------
+loadgen-apply:
+	kubectl apply -k entrypoint/loadgen
+
+loadgen-on: loadgen-apply
+	kubectl -n echo-loadgen scale deploy/loadgen --replicas=1
+	kubectl -n echo-loadgen rollout status deploy/loadgen --timeout=120s
+
+loadgen-off:
+	kubectl -n echo-loadgen scale deploy/loadgen --replicas=0

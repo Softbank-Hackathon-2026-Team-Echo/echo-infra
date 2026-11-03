@@ -23,7 +23,8 @@
 | 출력값 | 받는 쪽 | 예 | 상태 |
 |---|---|---|---|
 | `entrypoint_ip` | **도영(Cloudflare DNS)**: `*.echoport.uk` 고객 앱 주소를 이 IP 로 | `34.x.x.x` | 코드 (11/2) |
-| `entrypoint_weights_url` | echo-was 실행기(트래픽 전환 10→50→100): `PUT /weights {"aws":90,"gcp":10}`, Bearer 토큰 | `http://<ip>:8080` | 코드 (11/2) |
+| `entrypoint_weights_internal_url` | **echo-was 실행기**(GKE 안, 같은 VPC): `PUT /weights`·`GET /counters`·`GET /summary`, Bearer 토큰. 토큰이 인터넷을 안 탄다 | `http://10.60.0.6:8080` | 코드 (11/3) |
+| `entrypoint_weights_url` | 운영자 점검용 공인 주소(`entrypoint_admin_cidrs` 에서만) | `http://<ip>:8080` | 코드 (11/2) |
 | `entrypoint_token_secret` | 운영자: `gcloud secrets versions access latest --secret=<값>` | `echo-dev-entry-weights-token` | 코드 (11/2) |
 | `entrypoint_grafana_url` | 데모 근거 화면(환경별 요청 수·5xx·p95·가중치·healthy 수) | `http://<ip>:3000` | 코드 (11/2) |
 

@@ -50,15 +50,23 @@ steps:
 
 임시 키는 1시간(ID 토큰도 1시간)이라 만료 전까지 재사용하고, 배포마다 새로 받지 않는다. 지금은 API 와 일꾼이 **같은 GSA** 다. 인터넷에 열린 API 가 뚫리면 두 클러스터 권한이 같이 넘어가므로, 시간이 나면 일꾼 전용 KSA·GSA(`echo-dev-executor`)로 분리한다(API 팀과 조율).
 
-## 3. 트래픽 전환·측정 (`entrypoint_weights_url`, Bearer 토큰은 Secret Manager `entrypoint_token_secret`)
+## 3. 트래픽 전환·측정 (`entrypoint_weights_internal_url`, Bearer 토큰은 Secret Manager `entrypoint_token_secret`)
+
+echo-was 는 GKE 에 있으므로 **내부 주소**(`http://10.60.0.6:8080`, 방화벽 `echo-dev-internal` 이 파드 대역을 허용)로 부른다. 토큰이 인터넷을 거치지 않는다. 공인 주소 `entrypoint_weights_url` 은 `entrypoint_admin_cidrs` 에서만 열리며 운영자 점검용이다.
 
 | 실행기 | 호출 | 응답 |
 |---|---|---|
 | TrafficExecutor·MainRouteExecutor | `PUT /weights {"aws":90,"gcp":10}` (합 100) | 반영된 가중치. Envoy 가 수 초 안에 바꾼다 |
-| MetricsProvider | `GET /summary?window=30s` | `{"ts","window","weights","total":{"rps","error_ratio"},"envs":{"aws":{"rps","error_ratio","p95_ms","healthy_hosts","hosts","weight"},…},"prometheus":"ok"}` |
+| 판정(건수 기반) | `GET /counters` | `{"ts","envs":{"aws":{"requests","errors_5xx","hosts"},"gcp":{…}}}` — Envoy 시작 이후 누적. Envoy admin 호스트 통계라 **즉시** 반영된다. 비율 적용 시점 값을 기준으로 잡고 1초마다 차이를 센다. 값이 줄면(호스트 교체·Envoy 재시작) 기준값을 다시 잡는다. Envoy 에 못 붙으면 503 |
+| MetricsProvider(참고) | `GET /summary?window=30s` | `{"ts","window","weights","total":{"rps","error_ratio"},"envs":{"aws":{"rps","error_ratio","p95_ms","healthy_hosts","hosts","weight"},…},"prometheus":"ok"}` |
 | HealthChecker(보조) | `GET /status` | 환경별 hosts·healthy (Envoy admin 기준) |
 
-`/summary` 는 Prometheus(5초 스크레이프) 값이라 전환 직후 몇 초는 비어 있을 수 있다(`null`). RTO 는 가중치 변경 시각과 `envs.<대상>.rps` 가 올라온 시각의 차, 실패 요청 수는 `error_ratio × rps × 초` 로 echo-was 가 계산해 이전 기록에 남긴다(#10). 8080 은 `entrypoint_admin_cidrs`(echo-was 가 있는 클러스터의 NAT IP)에만 열려 있다. GSA 에 `secretmanager.secretAccessor` 를 주면 일꾼이 토큰을 직접 읽는다 — 필요하면 요청.
+- 판정(건수 기반)은 echo-was 쪽(API 서버 8)이 한다: 비율 적용 시점 값을 기준으로 1초마다 차이를 세어 대상 환경 요청 N건이 차면 그 즉시 판정, 오류율이 허용치를 넘으면 즉시 실패, 단계별 최대 대기(예: 30초) 안에 N건이 안 차면 `INSUFFICIENT_TRAFFIC` 으로 실패→롤백. 대상 환경이 죽어 경로가 다른 환경으로 넘어가면 대상 건수가 안 올라 `INSUFFICIENT_TRAFFIC` 이 되는데 이것은 맞는 동작이다.
+- `errors_5xx` 는 5xx 응답 + 연결 실패·시간 초과(클라이언트에는 503)의 합이다.
+- `/summary` 는 Prometheus(5초 수집) 값이라 5초 이하 구간은 비어 있고(`null`) 전환 직후 몇 초도 비어 있을 수 있다. `error_ratio`·`p95_ms` 는 응답 코드·지연이 경로 클러스터(`aws_then_gcp`)에만 기록되는 Envoy 특성 때문에 "그 환경을 첫 순위로 하는 경로" 기준이다(환경이 건강하면 그 환경 값). 근거 화면·기록용으로만 쓴다.
+- **진입점 하나 = 서비스 하나.** 가중치가 진입점 전체에 하나라 `PUT /weights` 는 모든 호스트의 비율을 함께 바꾼다. 앱이 둘 이상이면 Host 별 라우트와 `PUT /services/{public_host}/weights` 가 필요하다(후속).
+- 시연용 합성 트래픽은 [entrypoint/loadgen](../entrypoint/loadgen/README.md)(GKE, 도쿄 밖)에서 진입점 공인 주소로 보낸다. 설계 문서에 "시연용 합성 트래픽"으로 밝힌다.
+- GSA 에 `secretmanager.secretAccessor` 를 주면 일꾼이 토큰을 직접 읽는다 — 필요하면 요청.
 
 ## 4. 정리할 것 (echo-was 가 GKE 로 옮겨진 뒤)
 

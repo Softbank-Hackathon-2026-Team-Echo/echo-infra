@@ -9,7 +9,8 @@ Envoy 가 읽는 파일 기반 xDS(/etc/envoy/dynamic/clusters.yaml·routes.yaml
   GET  /weights           현재 가중치 {"aws": 90, "gcp": 10}
   PUT  /weights           가중치 변경. 모든 환경 키, 0~100 정수, 합 100
   GET  /status            가중치 + Envoy admin 에서 본 환경별 호스트·healthy 수
-  GET  /summary           최근 30초 요약: 환경별 req/s·5xx 비율·p95·healthy 수 + 전체 + 가중치 (Prometheus 에서 읽음)
+  GET  /summary           최근 30초 요약: 환경별 req/s·5xx 비율·p95·healthy 수 + 전체 + 가중치 (Prometheus 에서 읽음, 참고용)
+  GET  /counters          Envoy 시작 이후 환경별 누적 요청·오류 수 (Envoy admin 호스트 통계). 건수 기반 판정은 이걸 쓴다
 
 환경 변수
   WEIGHTS_TOKEN    Bearer 토큰 (비어 있으면 보호된 경로는 503)
@@ -240,27 +241,57 @@ def seed():
 
 # ---------- Envoy admin ----------
 
-def envoy_cluster_health():
-    """{env: {"hosts": n, "healthy": m}} 또는 None(Envoy 접속 실패)"""
+def envoy_hosts():
+    """환경별 호스트 상태 목록 {env: [host_status, …]} 또는 None(Envoy 접속 실패)."""
     try:
         with urllib.request.urlopen(f"{ENVOY_ADMIN}/clusters?format=json", timeout=3) as r:
             data = json.load(r)
     except (urllib.error.URLError, json.JSONDecodeError, OSError):
         return None
-    out = {env: {"hosts": 0, "healthy": 0} for env in ENVS}
+    out = {env: [] for env in ENVS}
     for cs in data.get("cluster_statuses", []):
-        name = cs.get("name")
-        if name not in out:
-            continue
-        for hs in cs.get("host_statuses", []):
+        if cs.get("name") in out:
+            out[cs["name"]].extend(cs.get("host_statuses", []))
+    return out
+
+
+def envoy_cluster_health():
+    """{env: {"hosts": n, "healthy": m}} 또는 None(Envoy 접속 실패)"""
+    hosts = envoy_hosts()
+    if hosts is None:
+        return None
+    out = {}
+    for env, statuses in hosts.items():
+        healthy = 0
+        for hs in statuses:
             h = hs.get("health_status", {})
-            healthy = (
+            healthy += (
                 not h.get("failed_active_health_check", False)
                 and not h.get("failed_outlier_check", False)
                 and h.get("eds_health_status", "HEALTHY") != "UNHEALTHY"
             )
-            out[name]["hosts"] += 1
-            out[name]["healthy"] += 1 if healthy else 0
+        out[env] = {"hosts": len(statuses), "healthy": healthy}
+    return out
+
+
+def envoy_counters():
+    """{env: {"requests": n, "errors_5xx": m, "hosts": k}} 또는 None(Envoy 접속 실패). Envoy 시작 이후 누적값.
+
+    Envoy 는 응답 코드(5xx)를 경로(aggregate) 클러스터에만 기록하므로 환경별 값은 실제 환경 클러스터의
+    호스트 통계(rq_total·rq_error)를 합한다. rq_error = 5xx 응답 + 연결 실패·시간 초과(클라이언트에는 503).
+    호스트 집합이 바뀌면(ALB IP 교체, Envoy 재시작) 값이 줄 수 있다 → 부르는 쪽은 줄어든 시점에 기준값을 다시 잡는다.
+    """
+    hosts = envoy_hosts()
+    if hosts is None:
+        return None
+    out = {}
+    for env, statuses in hosts.items():
+        c = {"requests": 0, "errors_5xx": 0, "hosts": len(statuses)}
+        for hs in statuses:
+            stats = {st.get("name"): int(st.get("value", 0)) for st in hs.get("stats", [])}
+            c["requests"] += stats.get("rq_total", 0)
+            c["errors_5xx"] += stats.get("rq_error", 0)
+        out[env] = c
     return out
 
 
@@ -285,17 +316,21 @@ def prom_query(expr):
 
 
 def summary(window="30s"):
-    """환경별 요청 수·5xx 비율·p95·healthy 호스트와 전체 요청 수. echo-was 측정 기록·프론트 근거 화면용."""
+    """환경별 요청 수·5xx 비율·p95·healthy 호스트와 전체 요청 수. 근거 화면·참고용(판정은 /counters).
+
+    요청 수(rps)는 실제 환경 클러스터에 기록되지만 응답 코드(5xx·완료 수)와 지연은 경로 클러스터(aws_then_gcp)에만
+    기록된다. 그래서 error_ratio·p95 는 "그 환경을 첫 순위로 하는 경로" 기준이다 — 환경이 건강하면 그 환경 값이다.
+    """
     envs = "|".join(ENVS)
     rps = prom_query(f'sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total{{envoy_cluster_name=~"{envs}"}}[{window}]))')
-    err = prom_query(f'sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_xx{{envoy_response_code_class="5",envoy_cluster_name=~"{envs}"}}[{window}]))')
-    # 지연 히스토그램은 라우트의 aggregate 클러스터(aws_then_gcp)에 기록된다. 첫 환경 기준으로 돌려준다.
+    err = prom_query(f'sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_xx{{envoy_response_code_class="5",envoy_cluster_name=~".+_then_.+"}}[{window}]))')
+    done = prom_query(f'sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_completed{{envoy_cluster_name=~".+_then_.+"}}[{window}]))')
     p95 = prom_query(f'histogram_quantile(0.95, sum by (le, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_time_bucket{{envoy_cluster_name=~".+_then_.+"}}[{window}])))')
     healthy = prom_query(f'envoy_cluster_membership_healthy{{envoy_cluster_name=~"{envs}"}}')
     hosts = prom_query(f'envoy_cluster_membership_total{{envoy_cluster_name=~"{envs}"}}')
     total = prom_query(f'sum(rate(envoy_http_downstream_rq_total{{envoy_http_conn_manager_prefix="ingress_http"}}[{window}]))')
     total_err = prom_query(f'sum(rate(envoy_http_downstream_rq_xx{{envoy_http_conn_manager_prefix="ingress_http",envoy_response_code_class="5"}}[{window}]))')
-    ok = all(x is not None for x in (rps, err, p95, healthy, hosts, total, total_err))
+    ok = all(x is not None for x in (rps, err, done, p95, healthy, hosts, total, total_err))
 
     def ratio(num, den):
         if num is None or den is None or not den:
@@ -308,11 +343,13 @@ def summary(window="30s"):
     per_env = {}
     for env in ENVS:
         r = (rps or {}).get(env)
-        e = (err or {}).get(env)
+        # 5xx 가 한 번도 없던 경로는 Prometheus 에 시계열 자체가 없다(usedonly) → 조회가 됐다면 0 으로 본다
+        e = None if err is None else err.get(fallback_name(env), 0.0)
+        d = (done or {}).get(fallback_name(env))
         lat = (p95 or {}).get(fallback_name(env))
         per_env[env] = {
             "rps": None if r is None else round(r, 3),
-            "error_ratio": ratio(e, r) if r else (0.0 if r == 0 else None),
+            "error_ratio": ratio(e, d) if d else (0.0 if d == 0 else None),
             "p95_ms": None if lat is None else round(lat, 1),
             "healthy_hosts": None if healthy is None else int(healthy.get(env, 0)),
             "hosts": None if hosts is None else int(hosts.get(env, 0)),
@@ -373,6 +410,13 @@ class Handler(BaseHTTPRequestHandler):
             if not re.fullmatch(r"[1-9][0-9]{0,3}[smh]", window):
                 return self._send(400, {"error": "window 는 30s·5m 같은 꼴이어야 한다"})
             return self._send(200, summary(window))
+        if self.path == "/counters":
+            if not self._authorized():
+                return
+            counters = envoy_counters()
+            if counters is None:
+                return self._send(503, {"error": "Envoy admin 에 접속할 수 없다"})
+            return self._send(200, {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "envs": counters})
         if self.path == "/status":
             if not self._authorized():
                 return
