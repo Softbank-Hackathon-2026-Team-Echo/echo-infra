@@ -113,3 +113,9 @@ variable "executor_google_service_account_id" {
     error_message = "GSA 의 uniqueId(숫자)를 넣는다. 이메일이 아니다."
   }
 }
+
+variable "apps_domain" {
+  description = "AWS 환경별 앱 주소의 하위 도메인 (echo-was aws 환경 config.ingressDomain). 인증서는 *.<이 값>"
+  type        = string
+  default     = "aws-tokyo.echoport.uk"
+}

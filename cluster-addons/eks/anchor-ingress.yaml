@@ -1,0 +1,40 @@
+# AWS 공유 문(API 서버 3-2 §7 P3): ALB 그룹 `echo-apps` 의 닻 Ingress. 그룹의 ALB 를 항상 살려 두고(앱이 0개여도)
+# 어떤 앱 규칙에도 맞지 않는 주소는 404 로 끝낸다. 앱 Ingress(실행기가 만듦)는 같은 group.name 으로 규칙만 더한다.
+# 받는 쪽은 진입점 VM 과 GKE NAT(일꾼 헬스체크)뿐이다(inbound-cidrs). 앱에 인증이 없어 인터넷 전체에는 열지 않는다.
+# HTTPS 443 + ACM 인증서는 *.aws-tokyo.echoport.uk 인증서가 ISSUED 된 뒤 listen-ports 에 더한다(발급 전에 넣으면 그룹 전체 반영이 실패).
+# 적용: kubectl --context echo-dev-eks apply -f cluster-addons/eks/anchor-ingress.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: echo-apps-anchor
+  labels:
+    managed-by: dongok-manual
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: anchor
+  namespace: echo-apps-anchor
+  labels:
+    managed-by: dongok-manual
+  annotations:
+    alb.ingress.kubernetes.io/group.name: echo-apps
+    alb.ingress.kubernetes.io/group.order: "1000" # 가장 뒤 = 다른 규칙에 안 걸린 것만
+    alb.ingress.kubernetes.io/load-balancer-name: echo-dev-apps
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/inbound-cidrs: 34.158.202.103/32,34.64.211.218/32 # 진입점 VM · GKE NAT
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    alb.ingress.kubernetes.io/actions.response-404: '{"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"404","messageBody":"not found"}}'
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: response-404
+                port:
+                  name: use-annotation

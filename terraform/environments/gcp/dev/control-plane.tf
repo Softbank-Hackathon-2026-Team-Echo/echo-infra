@@ -67,3 +67,11 @@ resource "google_compute_managed_ssl_certificate" "control_plane" {
 
   depends_on = [google_project_service.this["compute.googleapis.com"]]
 }
+
+# 관제탑(echo-was 일꾼)이 온프레 k3s 에 이미지 받기 자격(echo-pull)을 넣을 때 자기 액세스 토큰으로 AR 을 읽는다 (API 서버 3-2 §5.8, §7 P6).
+resource "google_artifact_registry_repository_iam_member" "control_plane_reader" {
+  location   = google_artifact_registry_repository.this.location
+  repository = google_artifact_registry_repository.this.name
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:${google_service_account.control_plane.email}"
+}

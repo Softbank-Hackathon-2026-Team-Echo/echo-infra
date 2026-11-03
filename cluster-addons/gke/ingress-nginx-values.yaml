@@ -1,0 +1,27 @@
+# GKE 공유 문(API 서버 3-2 §7 P4): ingress-nginx 하나가 L4 부하 분산기 1개로 모든 앱 Ingress(class nginx)를 받는다.
+# 설치: helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx --create-namespace -f cluster-addons/gke/ingress-nginx-values.yaml
+# 부하 분산기는 **내부**다. 진입점 VM 이 같은 VPC 라 공개 IP 가 필요 없고, 환경별 주소(*.gcp-seoul.echoport.uk)는 VPC 안(일꾼 헬스체크)에서만 풀린다.
+# 공개가 필요해지면 annotation 한 줄을 빼고 helm upgrade 한다(동옥 확인 뒤).
+# 기본 인증서는 cert-manager 가 발급할 와일드카드(*.gcp-seoul.echoport.uk) Secret 을 가리킨다(없는 동안은 nginx 자체 서명).
+controller:
+  replicaCount: 1
+  ingressClassResource:
+    name: nginx
+    default: false
+  service:
+    type: LoadBalancer
+    annotations:
+      networking.gke.io/load-balancer-type: "Internal"
+    externalTrafficPolicy: Local # 클라이언트 IP 보존 (진입점 IP 가 로그에 남는다)
+  extraArgs:
+    default-ssl-certificate: ingress-nginx/wildcard-gcp-seoul-tls
+  admissionWebhooks:
+    enabled: false # 비공개 GKE 는 컨트롤 플레인→노드 8443 방화벽이 따로 필요해 해커톤 범위에서 끈다
+  config:
+    use-forwarded-headers: "true" # 진입점(Envoy) 뒤라 X-Forwarded-* 를 믿는다
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+  podLabels:
+    managed-by: dongok-manual
