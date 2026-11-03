@@ -15,3 +15,9 @@ gke_admin_members = [
 # billing_account            = "XXXXXX-XXXXXX-XXXXXX"
 # budget_limit_usd           = 150
 # budget_notification_emails = ["<팀 메일>"]
+
+# 진입점 업스트림 = 환경별 데모앱 주소 (demo-app/README.md). 비우면 placeholder 라 503 만 난다.
+# entrypoint_upstreams = {
+#   aws = "<EKS demo-app NLB DNS>:80"
+#   gcp = "<GKE demo-app 내부 LB IP>:80"
+# }

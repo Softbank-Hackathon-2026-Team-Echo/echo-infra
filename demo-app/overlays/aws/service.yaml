@@ -1,0 +1,16 @@
+# 진입점(GCP)에서 오므로 공개 NLB 가 필요하다. AWS Load Balancer Controller 가 만든다(IP 대상).
+# 앱에 인증이 없어 진입점 VM 과 GKE NAT(echo-was 헬스체크)에서만 받는다. 주소(NLB DNS)는 entrypoint_upstreams.aws 에 적는다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app
+  namespace: echo-demo
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+spec:
+  type: LoadBalancer
+  loadBalancerSourceRanges:
+    - 34.158.202.103/32 # 진입점 VM echo-dev-entry 공개 IP
+    - 34.64.211.218/32 # GCP NAT (echo-was 가 환경별 주소로 헬스체크)

@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: echo-demo
+resources:
+  - namespace.yaml
+  - demo-app.yaml
+# 이미지는 digest 로 고정한다 (echo-demo-app 의 image 워크플로가 GHCR 에 게시, onprem/install.sh 와 같은 값).
+images:
+  - name: ghcr.io/softbank-hackathon-2026-team-echo/echo-demo-app
+    digest: sha256:3a8211ce82191fdee4da70d736f4946bf8be84c052bf889f7f5c2e6b596405bd
+# CLAUDE.md 규칙: 손으로 올린 리소스는 managed-by=<이름>-manual
+labels:
+  - includeSelectors: false
+    pairs:
+      managed-by: dongok-manual
+      app.kubernetes.io/part-of: echo-demo

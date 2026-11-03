@@ -1,0 +1,10 @@
+# 진입점 VM 이 같은 VPC 에 있으므로 내부 패스스루 LB 로만 연다 (공개 IP 없음). 주소는 entrypoint_upstreams.gcp 에 적는다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app
+  namespace: echo-demo
+  annotations:
+    networking.gke.io/load-balancer-type: "Internal"
+spec:
+  type: LoadBalancer

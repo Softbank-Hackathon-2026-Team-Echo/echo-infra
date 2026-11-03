@@ -1,0 +1,205 @@
+# 관리 대상 앱(echo-demo-app) + PostgreSQL 17 + PgBouncer(transaction 모드). 지민의 onprem/manifests/demo-app.yaml 과 같은 묶음이고
+# 자리표시 대신 kustomize 오버레이(overlays/gcp·aws)가 환경 이름·외부 주소를 채운다. 디스크는 클러스터 기본 StorageClass.
+# 앱 계약(echo-demo-app specs/infra-4-demo-app.md): 포트 8080, DATABASE_URL 은 PgBouncer 경유, /healthz 는 DB 를 보지 않는다.
+# 비밀번호는 Secret echo-demo/demo-db(README 의 명령으로 처음 한 번 만든다)에서만 읽는다.
+
+# ---------- PostgreSQL 17 (k3s 기본 local-path 디스크) ----------
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-db
+  namespace: echo-demo
+spec:
+  clusterIP: None
+  selector:
+    app: demo-db
+  ports:
+    - name: postgres
+      port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: demo-db
+  namespace: echo-demo
+spec:
+  serviceName: demo-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-db
+  template:
+    metadata:
+      labels:
+        app: demo-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17
+          # 논리 복제 출발점이 될 수 있게 한다(로컬 compose 와 같다).
+          args: ["-c", "wal_level=logical"]
+          env:
+            - name: POSTGRES_USER
+              value: demo
+            - name: POSTGRES_DB
+              value: demo
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: demo-db
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "demo", "-d", "demo"]
+            periodSeconds: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+# ---------- PgBouncer (앱은 이것으로만 DB 에 붙는다) ----------
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-pgbouncer
+  namespace: echo-demo
+spec:
+  selector:
+    app: demo-pgbouncer
+  ports:
+    - name: pgbouncer
+      port: 6432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-pgbouncer
+  namespace: echo-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-pgbouncer
+  template:
+    metadata:
+      labels:
+        app: demo-pgbouncer
+    spec:
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:v1.26.1-p0
+          env:
+            - name: DB_HOST
+              value: demo-db
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: demo
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: demo-db
+                  key: password
+            - name: AUTH_TYPE
+              value: scram-sha-256
+            - name: POOL_MODE
+              value: transaction
+            - name: LISTEN_PORT
+              value: "6432"
+            # 앱이 prepared statement 없이 도는지 엄격하게 본다(로컬 compose·CI 와 같다).
+            - name: MAX_PREPARED_STATEMENTS
+              value: "0"
+          ports:
+            - containerPort: 6432
+          readinessProbe:
+            tcpSocket:
+              port: 6432
+            periodSeconds: 3
+          resources:
+            requests:
+              cpu: 20m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+---
+# ---------- 앱 ----------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app
+  namespace: echo-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-app
+  template:
+    metadata:
+      labels:
+        app: demo-app
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+      containers:
+        - name: app
+          image: ghcr.io/softbank-hackathon-2026-team-echo/echo-demo-app
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: demo-db
+                  key: database-url
+            - name: ECHO_ENVIRONMENT
+              value: unset  # 오버레이가 채운다
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app
+  namespace: echo-demo
+spec:
+  selector:
+    app: demo-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
