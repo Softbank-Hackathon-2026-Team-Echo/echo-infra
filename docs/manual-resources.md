@@ -1,0 +1,77 @@
+# 손으로 만든 자원 목록 (인프라 3.3)
+
+echo-was 실제 실행기를 켜는 동안(11/3~11/4) 시간 때문에 Terraform 밖에서 만든 자원이다. 환경을 다시 세울 때([#11](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-infra/issues/11)) 아래 표를 위에서 아래로 따라가면 같은 상태가 된다. 값(비밀)은 이 저장소에 없고, 만드는 방법만 있다.
+
+## Terraform 으로 옮긴 것 (GCP `terraform/environments/gcp/dev/control-plane.tf`)
+
+| 자원 | Terraform 자원 | 값(version)은 | 다시 만들 때 |
+|---|---|---|---|
+| Secret Manager `echo-dev-echo-was-cloudflare-dns-token` | `google_secret_manager_secret.control_plane_executor["cloudflare_dns_token"]` | 사람이 넣는다 | `terraform apply` 로 껍데기 → 아래 Cloudflare 토큰 절의 명령으로 값 |
+| Secret Manager `echo-dev-echo-was-onprem-executor-token` | `…control_plane_executor["onprem_executor_token"]` | 사람이 넣는다 | `terraform apply` 로 껍데기 → [onprem/README.md](../onprem/README.md) 의 "3) 토큰을 echo-was 비밀 저장소로" |
+| GSA `echo-dev-echo-was` 의 위 두 비밀 읽기 권한(`secretAccessor`, 이 비밀만) | `google_secret_manager_secret_iam_member.control_plane_executor_accessor[*]` | - | `terraform apply` |
+
+- 껍데기만 Terraform 이 갖는다. `google_secret_manager_secret_version` 은 만들지 않는다(값이 state 에 남지 않게).
+- 11/3 에 CLI 로 먼저 만든 자원이라 `import` 블록으로 가져왔다. 첫 apply 뒤에는 그 블록을 지워도 된다.
+- 새 환경에서 apply 만 하면 껍데기와 권한이 생긴다. 값이 없으면 echo-was 일꾼의 해당 기능(대표 주소 레코드·온프레 배포)이 비밀을 못 읽어 실패한다.
+
+## Terraform 으로 옮기지 않은 것: Cloudflare (손으로 관리)
+
+Cloudflare 는 지민 개인 계정에 있고 영역 `echoport.uk` 를 갖는다. 토큰 권한과 계정 소유 문제로 Terraform 에 넣지 않았다. **바꿀 수 있는 사람은 계정 주인인 지민이다**(다른 팀원의 접근은 확인되지 않았다). 팀원이 바꿔야 하면 지민에게 이슈로 요청한다.
+
+### DNS 레코드
+
+| 이름 | 종류 → 값 | 프록시 | 용도 | 다시 만들 때 |
+|---|---|---|---|---|
+| `*.echoport.uk` | A → 고정 진입점 IP (`terraform output entrypoint_ip`, GCP dev 루트) | 켬(주황 구름) | 대표 주소 `{서비스}-{8자}.echoport.uk` | 대시보드 DNS → 레코드 추가, 또는 아래 API 예시 |
+| `*.aws-tokyo.echoport.uk` | CNAME → 닻 ALB DNS (`kubectl -n echo-apps-anchor get ingress anchor`) | 끔(DNS only) | EKS 앱 주소 | 같음 |
+| `*.gcp-seoul.echoport.uk` | A → GKE ingress-nginx 내부 IP (`kubectl -n ingress-nginx get svc ingress-nginx-controller`, 지금 `10.60.0.8`) | 끔 | GKE 앱 주소(VPC 안에서만 의미 있음) | 같음 |
+| ACM 검증 CNAME | `terraform output acm_validation_records` (AWS dev 루트) | 끔 | `*.aws-tokyo.echoport.uk` 인증서 검증 | 같음 |
+| 온프레 터널 CNAME (`demo-onprem-…`, `k3s-…`) | `cloudflared tunnel route dns` 가 만든다 | 켬 | 온프레 데모·k3s 창구 | [onprem/README.md](../onprem/README.md) |
+
+API 예시(토큰은 Secret Manager 에서 바로 넘기고 화면에 찍지 않는다. 영역 id 는 대시보드 영역 개요에 있다):
+
+```bash
+CF_TOKEN=$(gcloud secrets versions access latest --secret=echo-dev-echo-was-cloudflare-dns-token)
+curl -sS -X POST "https://api.cloudflare.com/client/v4/zones/<영역 id>/dns_records" \
+  -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+  --data '{"type":"A","name":"*.echoport.uk","content":"<entrypoint_ip>","proxied":true}'
+```
+
+### 설정 규칙
+
+| 이름 | 내용 | 왜 | 다시 만들 때 |
+|---|---|---|---|
+| 구성 규칙 "진입점 대표 주소: 원본 HTTP 80 (Flexible)" | 조건 `http.host ne "app.echoport.uk"` → SSL 을 Flexible 로. 영역 전체 SSL 모드는 "전체(Full)" 그대로 | 진입점 Envoy 가 80 만 받는다 | 대시보드 규칙 → 구성 규칙 → 규칙 만들기 (위 조건·SSL=Flexible). echo-was 용 토큰 권한은 DNS 편집·영역 읽기뿐이라 이 규칙은 대시보드에서 바꾼다 |
+
+### Cloudflare API 토큰 (echo-was 용)
+
+| 항목 | 내용 |
+|---|---|
+| 권한 | 영역 `echoport.uk` 의 DNS 편집 + 영역 읽기만. 다른 영역·계정 권한 없음 |
+| 만드는 곳 | 대시보드 내 프로필 → API 토큰 → "영역 DNS 편집" 템플릿, 영역 범위를 `echoport.uk` 하나로 |
+| 쓰는 곳 | echo-was 일꾼(대표 주소 레코드 생성), GKE cert-manager(DNS-01), 위 API 예시 |
+| 값을 넣는 명령 | `printf %s "$TOKEN" \| gcloud secrets versions add echo-dev-echo-was-cloudflare-dns-token --data-file=-` (껍데기는 Terraform) |
+| GKE 로 넘기기 | `cluster-addons/README.md` 의 cert-manager 절 (`cert-manager/cloudflare-dns-token` Secret) |
+| 확인 | `curl -sS -H "Authorization: Bearer $CF_TOKEN" https://api.cloudflare.com/client/v4/user/tokens/verify` → `"status":"active"` |
+
+## Kubernetes 에 손으로 적용한 것
+
+| 자원 | 어디 | 파일 | 다시 만들 때 |
+|---|---|---|---|
+| cert-manager v1.21.3 (Helm release `cert-manager`) | GKE `echo-dev-gke` ns `cert-manager` | `cluster-addons/gke/cert-manager/values.yaml` | [cluster-addons/README.md](../cluster-addons/README.md) 4) 절 |
+| Secret `cert-manager/cloudflare-dns-token` | 같음 | 파일 없음(값은 Secret Manager 에서 넘김) | 같은 절의 `gcloud secrets versions access … \| kubectl create secret` |
+| ClusterIssuer `letsencrypt-dns` · Certificate `ingress-nginx/wildcard-gcp-seoul` | 같음 | `cluster-addons/gke/cert-manager/wildcard-gcp-seoul.yaml` | 같은 절의 `kubectl apply -f` |
+| ingress-nginx · EKS 닻 Ingress | GKE / EKS | `cluster-addons/gke/ingress-nginx-values.yaml`, `cluster-addons/eks/anchor-ingress.yaml` | [cluster-addons/README.md](../cluster-addons/README.md) "설치" 절 |
+
+## 이미 코드에 반영된 것
+
+executor 역할 신뢰 조건([#41](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-infra/pull/41)), 온프레 실행기 신원·라벨 정책([#36](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-infra/pull/36)).
+
+## 지금 상태 확인 (2026-11-04)
+
+| 확인 | 결과 |
+|---|---|
+| `gcloud secrets list` 의 두 비밀 | 존재, version 1 사용 가능, 라벨 `managed-by=terraform` |
+| 두 비밀의 IAM | `echo-dev-echo-was` GSA 의 `secretAccessor` 하나씩 |
+| GKE | cert-manager 3개 Deployment 1/1, ClusterIssuer `letsencrypt-dns` Ready, Certificate `wildcard-gcp-seoul` Ready |
+| `dig x.echoport.uk` / `x.aws-tokyo.echoport.uk` / `x.gcp-seoul.echoport.uk` | Cloudflare 프록시 IP / ALB CNAME / `10.60.0.8` |
