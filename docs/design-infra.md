@@ -84,7 +84,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 컷오버 = 두 PgBouncer PAUSE → B 따라잡음(replay_lag 0) → 시퀀스 맞춤 → 역방향 구독(B→A) → 백엔드를 B 로 → RESUME
 ```
 
-- 앱은 **자기 쪽 PgBouncer 로만** 붙는다. 컷오버는 접속 문자열이 아니라 PgBouncer 백엔드 전환이다(쓰기 정지 ≈ 1초 목표, 측정값 `TBD`).
+- 앱은 **자기 쪽 PgBouncer 로만** 붙는다. 컷오버는 접속 문자열이 아니라 PgBouncer 백엔드 전환이다(쓰기 정지 목표 ≈ 1초, 11/4 리허설 실측 7.97초 — 7절·10절).
 - 역방향 구독은 **쓰기 정지 창 안에서** `copy_data=false` 로 만들어 빈틈이 없다. 롤백은 거울(`rollback.sh`).
 - cross-cloud 는 공개 LB 지만 상대 클라우드 NAT IP 만 받고 scram + TLS.
 - 대조: 순번 쓰기 N건 → 누락 0·중복 0 (`verify.sh`). 재난(A 급사)은 롤백이 아니라 승격(B 구독 DISABLE → B 백엔드를 B 로).
@@ -114,7 +114,9 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 | 실제 실행기 복귀 gcp→aws (Start failback) | 13초, 실패 요청 0 | 같음 |
 | 실제 실행기 이전 중 Roll back | 되돌림 3초 | 같음 |
 | 장애 시 우회 | 1초 안 (로컬) | `entrypoint/README.md` |
-| 컷오버 쓰기 정지 / 롤백 복귀 | `TBD` (인프라 7.1 리허설) | `rehearsals/` |
+| 컷오버 A→B 쓰기 정지 / 롤백 B→A 복귀 | 7.97초 / 9.42초 (PAUSE 드레인 ≈1초 + 따라잡기 <1초 + 역방향 구독·repoint·RESUME ≈6~8초) | 11/4 20:25 10 rps 쓰기 중, `rehearsals/2026-11-04-2025.md` |
+| 컷오버·롤백 대조 | A 168 = B 168, 누락 0 · 중복 0 | 같음 |
+| 컷오버·롤백 중 쓰기 요청 | 166건 중 5건 클라이언트 10초 타임아웃, 데이터 누락 0(4건은 DB 반영) | 같음 |
 
 ## 8. 보안·권한 (인프라 몫)
 
@@ -139,6 +141,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 | 첫 이전 때 도착 환경 p95 `null` | Prometheus `usedonly` 수집 | 판정엔 영향 없음(건수 기반). 수집 옵션 조정 또는 사전 워밍 |
 | 클러스터 공통 OTel 수집기 | 진입점 Prometheus 만 | 인프라 9, DR 적용 뒤 |
 | 온프레가 진입점 업스트림에 아직 없음 | aws·gcp 2개 | `UPSTREAMS` 한 줄(인프라 13 선행) |
+| 쓰기 정지 8초(목표 1초) | 창 안에서 역방향 구독 생성 + kubectl exec 왕복 6~7회 | 역방향 구독을 미리 `enabled=false` 로 두고 창 안에서 ENABLE 만, repoint 병렬, 클러스터 안(Job)에서 실행 |
 | 컷오버 실행이 이전 계획과 분리 | 사람이 `cutover.sh` | echo-was 는 복제 지연만 확인(DATA_SYNC_CHECK). 비율 100% 뒤 컷오버 호출은 후속 |
 | PgBouncer repoint 가 파드 emptyDir 에만 남음 | 파드 재시작 시 ConfigMap 값으로 복귀 | `cutover.sh`·`rollback.sh` 가 ConfigMap 도 함께 갱신(후속, 지민). B 는 11/4 ConfigMap 을 A 로 맞춰 둠 |
 | A PgBouncer → B 연결(컷오버 뒤)이 평문 | A ini 에 `server_tls_sslmode` 없음 | `server_tls_sslmode = require` 한 줄 추가(#45 요청) |
