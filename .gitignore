@@ -52,3 +52,5 @@ docs/PR.md
 
 # 고정 진입점 로컬 값 (토큰·비밀번호)
 entrypoint/.env
+__pycache__/
+*.pyc
