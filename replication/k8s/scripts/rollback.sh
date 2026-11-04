@@ -19,8 +19,8 @@ pg A -c "SELECT setval(pg_get_serial_sequence('demo.seq_write','id'), (SELECT CO
 pg A -c "ALTER SUBSCRIPTION echo_sub_rev DISABLE;" >/dev/null
 pg B -c "DROP SUBSCRIPTION IF EXISTS echo_sub;" >/dev/null
 kubectl --context "$B_CTX" -n "$NS" exec -i echo-pg-0 -c postgres -- sh -c \
-  'psql -X -v ON_ERROR_STOP=1 -U postgres -d app -v conn="host=$0 port=5432 dbname=app user=repl_user password=$REPL_PASSWORD sslmode=require" \
-   -c "CREATE SUBSCRIPTION echo_sub CONNECTION :'"'"'conn'"'"' PUBLICATION echo_pub WITH (copy_data = false);"' "$A_HOST" >/dev/null
+  'echo "CREATE SUBSCRIPTION echo_sub CONNECTION :'"'"'conn'"'"' PUBLICATION echo_pub WITH (copy_data = false);" | \
+   psql -X -v ON_ERROR_STOP=1 -U postgres -d app -v conn="host=$0 port=5432 dbname=app user=repl_user password=$REPL_PASSWORD sslmode=require"' "$A_HOST" >/dev/null
 pg A -c "DROP SUBSCRIPTION IF EXISTS echo_sub_rev;" >/dev/null
 repoint A "$A_LOCAL"; repoint B "$A_HOST"
 pgb A "RESUME app;" >/dev/null; pgb B "RESUME app;" >/dev/null

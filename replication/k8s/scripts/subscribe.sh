@@ -18,6 +18,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA demo GRANT ALL ON TABLES TO app_rw;
 SQL
 echo "[2] B: CREATE SUBSCRIPTION echo_sub → $A_HOST (repl_user, TLS require, copy_data)"
 kubectl --context "$B_CTX" -n "$NS" exec -i echo-pg-0 -c postgres -- sh -c \
-  'psql -X -v ON_ERROR_STOP=1 -U postgres -d app -v conn="host=$0 port=5432 dbname=app user=repl_user password=$REPL_PASSWORD sslmode=require" \
-   -c "CREATE SUBSCRIPTION echo_sub CONNECTION :'"'"'conn'"'"' PUBLICATION echo_pub WITH (copy_data = true);"' "$A_HOST"
+  'echo "CREATE SUBSCRIPTION echo_sub CONNECTION :'"'"'conn'"'"' PUBLICATION echo_pub WITH (copy_data = true);" | \
+   psql -X -v ON_ERROR_STOP=1 -U postgres -d app -v conn="host=$0 port=5432 dbname=app user=repl_user password=$REPL_PASSWORD sslmode=require"' "$A_HOST"
 echo "[3] 상태"; "$(dirname "$0")/lag.sh"
