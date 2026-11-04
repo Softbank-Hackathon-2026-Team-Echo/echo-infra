@@ -57,7 +57,7 @@ infra-7·8 에서 로컬로 검증한 논리 복제·컷오버·롤백을 **실�
 
 | # | 단계 | 담당 | 확인 |
 |---|---|---|---|
-| 1 | `kubectl apply -f aws-tokyo/30-expose.yaml` + 라벨 `echo/managed-by=dohyun-manual` | 이도현(승인 뒤) | NLB `active`, DNS 발급 |
+| 1 | `kubectl apply -k aws-tokyo` (NLB 포함, 라벨 `echo/managed-by=dohyun-manual` 은 파일에 있음) — ✅ 11/4 | 이도현 | NLB `active`, DNS 발급, `diff -k` 빈 출력 |
 | 2 | NLB 보안 그룹 확인 | 이도현 | 5432 인바운드 = `34.64.211.218/32` 하나 |
 | 3 | 허용 목록 밖(로컬 PC)에서 접속 시도 | 이도현 | **연결 실패가 정상** |
 | 4 | NLB DNS 를 #32 에 기록, `repl_user` 비밀을 B Secret 으로 전달 | 이도현 → 서동옥 | 비밀은 이슈·Slack 공개 채널에 쓰지 않는다 |
