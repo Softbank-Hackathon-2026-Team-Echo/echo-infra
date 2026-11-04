@@ -29,7 +29,11 @@ helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx && helm r
 helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
   --kube-context gke_team-echo-final_asia-northeast3-a_echo-dev-gke \
   -n ingress-nginx --create-namespace -f cluster-addons/gke/ingress-nginx-values.yaml --wait
-# EKS (AWS Load Balancer Controller 가 이미 kube-system 에 있다)
+# EKS: AWS Load Balancer Controller(권한은 Terraform lbc.tf 의 Pod Identity, 컨트롤러는 helm) → 닻 Ingress
+VPC=$(aws ec2 describe-vpcs --region ap-northeast-1 --filters Name=tag:Name,Values=echo-dev --query 'Vpcs[0].VpcId' --output text)
+helm repo add eks https://aws.github.io/eks-charts && helm repo update
+helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller --version 3.6.2 -n kube-system --kube-context echo-dev-eks \
+  --set clusterName=echo-dev-eks --set region=ap-northeast-1 --set vpcId=$VPC --set serviceAccount.create=true --set serviceAccount.name=aws-load-balancer-controller --set replicaCount=1
 kubectl --context echo-dev-eks apply -f cluster-addons/eks/anchor-ingress.yaml
 ```
 

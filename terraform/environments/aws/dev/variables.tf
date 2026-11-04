@@ -119,3 +119,16 @@ variable "apps_domain" {
   type        = string
   default     = "aws-tokyo.echoport.uk"
 }
+
+# AWS Load Balancer Controller (lbc.tf). dev 는 11/2 에 손으로 만든 이름을 그대로 쓴다(재생성 방지). 새 환경은 비워 둔다.
+variable "lbc_role_name" {
+  description = "ALB 컨트롤러 IAM 역할 이름. 비우면 <cluster>-lbc"
+  type        = string
+  default     = ""
+}
+
+variable "lbc_policy_name" {
+  description = "ALB 컨트롤러 IAM 정책 이름. 비우면 <cluster>-lbc-policy"
+  type        = string
+  default     = ""
+}
