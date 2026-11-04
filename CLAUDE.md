@@ -35,6 +35,7 @@ terraform/
 ├─ bootstrap/{aws,gcp}/        # state 버킷 (관리자 로컬 state 1회 적용)
 ├─ environments/aws/dev/       # AWS 환경 루트 (VPC·EKS·ECR·Budgets·CI 역할)
 ├─ environments/gcp/dev/       # GCP 환경 루트 (VPC·NAT·GKE·Artifact Registry·Budgets·CI 연합)
+├─ environments/gcp/ai-sandbox/ # AI 에이전트 샌드박스 (운영과 연결 없는 새 VPC + VM 1대, 프로젝트 역할 0개 SA)
 ├─ environments/aws/onprem-demo/ # 시연에서 온프레로 간주하는 EC2 한 대 (서울, 인바운드 0)
 └─ modules/                    # 재사용 모듈 (필요할 때)
 onprem/                    # 온프레 k3s: 어느 리눅스 기기든 install.sh 하나로 (hosts/ = 기기별 준비)
