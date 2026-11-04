@@ -22,7 +22,7 @@ metadata:
     alb.ingress.kubernetes.io/group.order: "1000" # 가장 뒤 = 다른 규칙에 안 걸린 것만
     alb.ingress.kubernetes.io/load-balancer-name: echo-dev-apps
     alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/inbound-cidrs: 34.158.202.103/32,34.64.211.218/32 # 진입점 VM · GKE NAT
+    alb.ingress.kubernetes.io/inbound-cidrs: 34.158.202.103/32,8.230.16.205/32,34.64.211.218/32 # 진입점 VM(주 a · 보조 b) · GKE NAT
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
     alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-northeast-1:706878591119:certificate/a3bc8739-5af0-43d9-b7ad-64e64639dfe8

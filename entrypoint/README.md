@@ -104,5 +104,6 @@ Prometheus 는 5초마다 긁고 7일 보관. 접근 로그는 JSON 으로 stdou
 | 판정(`/counters`) | echo-was 가 읽음 | VM 별 통계라 주와 합산되지 않음 (PoC 한계) |
 
 - 만들기: `terraform.tfvars` 에 `entrypoint_secondary_zones = ["b"]` → `make plan CLOUD=gcp` → apply. 출력 `entrypoint_secondary_ips["b"]` 를 Cloudflare 에 두 번째 A 레코드(프록시 켬)로 올린다.
+- **보조 IP 를 받는 쪽에도 열어야 한다**: AWS 닻 ALB 의 `inbound-cidrs`(`cluster-addons/eks/anchor-ingress.yaml`)에 보조 IP 를 더하고 `kubectl apply`. 빠뜨리면 보조 VM 에서 aws 헬스체크가 타임아웃돼 gcp 로만 흐른다(11/4 적용 때 확인). GKE 쪽 nginx 는 VPC 안이라 바꿀 것 없다.
 - 한계: 주가 죽어 있는 동안 echo-was 는 가중치를 바꾸지 못한다(보조는 마지막 값으로 흐른다). 주 복구 뒤 보조가 자동으로 다시 맞춘다. 규모가 커지면 관리형 LB 뒤 Envoy 여러 대 + 가중치 저장소 분리가 답이다.
 - 측정: `HOST=<대표 주소> DURATION=120 entrypoint/scripts/failover-probe.sh` 를 돌리면서 다른 창에서 주 VM 을 멈춘다(`gcloud compute instances stop echo-dev-entry --zone asia-northeast3-a`). 실패 구간(초)·실패 건수가 나온다. 값은 `docs/design-infra.md` 7절에 적는다.
