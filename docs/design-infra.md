@@ -88,6 +88,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 - 역방향 구독은 **쓰기 정지 창 안에서** `copy_data=false` 로 만들어 빈틈이 없다. 롤백은 거울(`rollback.sh`).
 - cross-cloud 는 공개 LB 지만 상대 클라우드 NAT IP 만 받고 scram + TLS.
 - 대조: 순번 쓰기 N건 → 누락 0·중복 0 (`verify.sh`). 재난(A 급사)은 롤백이 아니라 승격(B 구독 DISABLE → B 백엔드를 B 로).
+- **시연 순서**(11/4 합동 리허설로 확정): Echo 이전(앱, 10→50→100%) → DB 컷오버 A→B → Echo 복귀 → DB 롤백 B→A. 이전 도중 컷오버하면 쓰기 정지 8초가 오류율 롤백을 부르고, 복귀의 데이터 확인은 역방향 구독(`echo_sub_rev`)이 있어야 통과하므로 컷오버가 복귀보다 앞선다.
 - 스크립트: `replication/k8s/scripts/{subscribe,lag,cutover,rollback,verify,writer,rehearsal}.sh`. 리허설 1회가 `rehearsals/<시각>.md` 표를 남긴다.
 - **11/4 실배선 상태**: A(도쿄) Postgres 17 `ssl=on`·`wal_level=logical`·발행 `echo_pub`, NLB `echo-dev-pg-a-….elb.ap-northeast-1.amazonaws.com:5432`(GCP NAT 34.64.211.218/32 만, 자체 서명 `CN=echo-pg-a`, `sslmode=require`). B(서울) 같은 구성, LB `34.22.85.222:5432`(AWS NAT 18.180.171.76/32 만). B 구독 `echo_sub` 생성 → A 에서 `streaming`, `demo.seq_write` 동기 상태 ready. 두 PgBouncer 백엔드는 모두 A(B 는 라이브 ini 와 ConfigMap 둘 다 A 로 맞춤). 계정은 양쪽 동일(`app_rw`·`repl_user`·`pgbouncer_auth`·`echo_monitor`).
 - **복제 지연 판정 연결**: echo-was `PostgresDataSyncChecker`(DATA_SYNC_CHECK) 가 발행 쪽 `pg_stat_replication.replay_lag` 를 `echo_monitor`(pg_monitor, 읽기 전용) 계정으로 읽는다. 비밀번호는 GCP Secret Manager `echo-dev-echo-was-pg-monitor-password` 에만(껍데기 Terraform, 값은 `monitor-user.sh`).
@@ -117,6 +118,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 | 컷오버 A→B 쓰기 정지 / 롤백 B→A 복귀 | 7.97초 / 9.42초 (PAUSE 드레인 ≈1초 + 따라잡기 <1초 + 역방향 구독·repoint·RESUME ≈6~8초) | 11/4 20:25 10 rps 쓰기 중, `rehearsals/2026-11-04-2025.md` |
 | 컷오버·롤백 대조 | A 168 = B 168, 누락 0 · 중복 0 | 같음 |
 | 컷오버·롤백 중 쓰기 요청 | 166건 중 5건 클라이언트 10초 타임아웃, 데이터 누락 0(4건은 DB 반영) | 같음 |
+| **합동 시연 순서** Echo 이전 → DB 컷오버 → Echo 복귀 → DB 롤백 | 이전 10초(복제 지연 0 통과) → 컷오버 쓰기 정지 8.5초 → 복귀 9초(역방향 지연 0 통과, 5xx 증가 0) → 롤백 9.8초, 대조 168=168 | 11/4 21:10~21:16 `rehearsals/2026-11-04-2110-joint.md` |
 
 ## 8. 보안·권한 (인프라 몫)
 
