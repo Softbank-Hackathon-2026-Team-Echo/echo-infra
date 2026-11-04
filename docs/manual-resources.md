@@ -11,7 +11,7 @@ echo-was 실제 실행기를 켜는 동안(11/3~11/4) 시간 때문에 Terraform
 | GSA `echo-dev-echo-was` 의 위 두 비밀 읽기 권한(`secretAccessor`, 이 비밀만) | `google_secret_manager_secret_iam_member.control_plane_executor_accessor[*]` | - | `terraform apply` |
 
 - 껍데기만 Terraform 이 갖는다. `google_secret_manager_secret_version` 은 만들지 않는다(값이 state 에 남지 않게).
-- 11/3 에 CLI 로 먼저 만든 자원이라 `import` 블록으로 가져왔다. 첫 apply 뒤에는 그 블록을 지워도 된다.
+- 11/3 에 CLI 로 먼저 만든 자원이라 `import` 블록으로 가져왔고, 11/4 apply 뒤 블록은 지웠다(state 에 4개 자원이 있다).
 - 새 환경에서 apply 만 하면 껍데기와 권한이 생긴다. 값이 없으면 echo-was 일꾼의 해당 기능(대표 주소 레코드·온프레 배포)이 비밀을 못 읽어 실패한다.
 
 ## Terraform 으로 옮기지 않은 것: Cloudflare (손으로 관리)
