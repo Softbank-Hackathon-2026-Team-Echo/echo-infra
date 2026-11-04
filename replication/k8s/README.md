@@ -78,7 +78,7 @@ scripts/verify.sh
 
 ## echo-was 와의 접점
 
-- `DataSyncChecker.replication_lag(source, target)`(API 서버 8, 단계 `DATA_SYNC_CHECK`): publisher 쪽에서 `SELECT EXTRACT(EPOCH FROM replay_lag) FROM pg_stat_replication WHERE application_name = 'echo_sub'`(정방향; 역방향은 `echo_sub_rev` 를 B 에서). 접속은 `A_HOST`/`B_HOST`(GKE NAT 가 허용돼 있다)로 `pg_monitor` 권한 계정이 필요하다 — `CREATE ROLE echo_monitor LOGIN PASSWORD …; GRANT pg_monitor TO echo_monitor;` 를 양쪽에 넣고 Secret Manager 로 전달(요청 오면 한다).
+- `DataSyncChecker.replication_lag(source, target)`(API 서버 8, 단계 `DATA_SYNC_CHECK`): publisher 쪽에서 `SELECT EXTRACT(EPOCH FROM replay_lag) FROM pg_stat_replication WHERE application_name = 'echo_sub'`(정방향; 역방향은 `echo_sub_rev` 를 B 에서). 접속은 `A_HOST`/`B_HOST`(GKE NAT 가 허용돼 있다)로 `pg_monitor` 권한 계정이 필요하다 — `scripts/monitor-user.sh` 가 양쪽에 `echo_monitor`(pg_monitor) 를 만들고 비밀번호를 Secret Manager `echo-dev-echo-was-pg-monitor-password`(껍데기는 Terraform, 값은 스크립트) 에 넣는다. echo-was 는 SecretSync 로 받는다(11/4).
 - 컷오버·롤백 **실행 자체**는 echo-was 이전 계획에 없다(복제 지연 확인만). 시연은 사람이 `cutover.sh` 를 돌린다. 이전 계획과 잇는 것(비율 100% 도착 뒤 컷오버 호출)은 후속.
 
 ## 주의
