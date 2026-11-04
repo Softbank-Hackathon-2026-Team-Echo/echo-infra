@@ -20,6 +20,8 @@ Envoy 가 읽는 파일 기반 xDS(/etc/envoy/dynamic/clusters.yaml·routes.yaml
   ENVOY_ADMIN      Envoy admin 주소 (기본 http://envoy:9901)
   PROMETHEUS_URL   Prometheus 주소 (기본 http://prometheus:9090)
   HC_PATH          업스트림 헬스체크 경로 (기본 /healthz)
+  SYNC_FROM        보조 진입점일 때 주 진입점의 가중치 API 주소 (예 http://10.60.0.6:8080). 2초마다 GET /weights 로 맞춘다.
+                   주가 죽으면 마지막 값을 유지한다 (인프라 5.1 진입점 두 곳 PoC). 비어 있으면 동기화 없음
 """
 
 import json
@@ -40,6 +42,8 @@ TOKEN = os.environ.get("WEIGHTS_TOKEN", "")
 ENVOY_ADMIN = os.environ.get("ENVOY_ADMIN", "http://envoy:9901").rstrip("/")
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090").rstrip("/")
 HC_PATH = os.environ.get("HC_PATH", "/healthz")
+SYNC_FROM = os.environ.get("SYNC_FROM", "").rstrip("/")
+SYNC_INTERVAL = float(os.environ.get("SYNC_INTERVAL", "2"))
 LISTEN_PORT = int(os.environ.get("PORT", "8080"))
 
 LOCK = threading.Lock()  # 쓰기(PUT)만 직렬화한다. 읽기는 CURRENT 를 통째로 바꾸므로 잠그지 않는다
@@ -451,8 +455,34 @@ class Handler(BaseHTTPRequestHandler):
         return "\n".join(out) + "\n"
 
 
+def sync_loop():
+    """보조 진입점: 주 진입점의 /weights 를 주기적으로 당겨 같은 가중치를 유지한다. 주가 죽으면 마지막 값을 유지한다."""
+    reachable = None
+    while True:
+        try:
+            req = urllib.request.Request(f"{SYNC_FROM}/weights", headers={"Authorization": f"Bearer {TOKEN}"})
+            with urllib.request.urlopen(req, timeout=2) as r:
+                weights = validate_weights(json.load(r))
+            if reachable is not True:
+                log(msg="sync source reachable", source=SYNC_FROM)
+                reachable = True
+            if weights != CURRENT:
+                with LOCK:
+                    before = dict(CURRENT)
+                    apply_weights(weights)
+                log(msg="weights synced", before=before, after=weights, source=SYNC_FROM)
+        except (urllib.error.URLError, json.JSONDecodeError, ValueError, OSError) as e:
+            if reachable is not False:
+                log(msg="sync source unreachable, keeping last weights", source=SYNC_FROM, error=str(e))
+                reachable = False
+        time.sleep(SYNC_INTERVAL)
+
+
 def main():
     seed()
+    if SYNC_FROM:
+        threading.Thread(target=sync_loop, daemon=True, name="weights-sync").start()
+        log(msg="secondary entry: syncing weights", source=SYNC_FROM, interval_s=SYNC_INTERVAL)
     srv = ThreadingHTTPServer(("0.0.0.0", LISTEN_PORT), Handler)
     log(msg="listening", port=LISTEN_PORT, envs=ENVS, token_set=bool(TOKEN))
     try:

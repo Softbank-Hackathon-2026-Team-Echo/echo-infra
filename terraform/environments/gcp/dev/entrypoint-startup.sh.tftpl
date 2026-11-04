@@ -39,15 +39,25 @@ add_secret_version() { # $1=secret id, $2=값
     && log "secret $1 에 version 추가" || log "경고: secret $1 version 추가 실패 (권한·API 확인)"
 }
 
+# 진입점이 두 곳이면 같은 토큰·비밀번호를 써야 하므로, Secret Manager 에 이미 값이 있으면 그걸 읽는다(없을 때만 새로 만든다).
+read_secret_latest() { # $1=secret id → stdout 값 (없거나 권한 없으면 빈 문자열)
+  local token
+  token=$(curl -sf -H 'Metadata-Flavor: Google' 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token' | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+  curl -sf -H "Authorization: Bearer $token" \
+    "https://secretmanager.googleapis.com/v1/projects/${project_id}/secrets/$1/versions/latest:access" \
+    | python3 -c 'import sys,json,base64; print(base64.b64decode(json.load(sys.stdin)["payload"]["data"]).decode())' 2>/dev/null || true
+}
+
 if [ ! -f "$ROOT/.env.secrets" ]; then
-  log "토큰·비밀번호 생성"
-  WEIGHTS_TOKEN=$(openssl rand -hex 32)
-  GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 16)
+  WEIGHTS_TOKEN=$(read_secret_latest "${secret_token}")
+  GRAFANA_ADMIN_PASSWORD=$(read_secret_latest "${secret_grafana}")
+  if [ -n "$WEIGHTS_TOKEN" ]; then log "토큰: Secret Manager 의 기존 값 사용 (진입점 두 곳 공유)"; else log "토큰 생성"; WEIGHTS_TOKEN=$(openssl rand -hex 32); fi
+  if [ -n "$GRAFANA_ADMIN_PASSWORD" ]; then log "Grafana 비밀번호: Secret Manager 의 기존 값 사용"; else log "Grafana 비밀번호 생성"; GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 16); fi
   umask 077
   printf 'WEIGHTS_TOKEN=%s\nGRAFANA_ADMIN_PASSWORD=%s\n' "$WEIGHTS_TOKEN" "$GRAFANA_ADMIN_PASSWORD" > "$ROOT/.env.secrets"
   umask 022
-  add_secret_version "${secret_token}" "$WEIGHTS_TOKEN"
-  add_secret_version "${secret_grafana}" "$GRAFANA_ADMIN_PASSWORD"
+  [ -z "$(read_secret_latest "${secret_token}")" ] && add_secret_version "${secret_token}" "$WEIGHTS_TOKEN"
+  [ -z "$(read_secret_latest "${secret_grafana}")" ] && add_secret_version "${secret_grafana}" "$GRAFANA_ADMIN_PASSWORD"
 fi
 
 # 4. .env = 비밀값 + Terraform 이 정한 값 (매 부팅 다시 쓴다)
@@ -57,6 +67,7 @@ umask 077
   cat <<ECHO_ENV_EOF
 UPSTREAMS=${upstreams}
 DEFAULT_WEIGHTS=${default_weights}
+SYNC_FROM=${sync_from}
 ECHO_ENV_EOF
 } > "$ROOT/.env"
 umask 022

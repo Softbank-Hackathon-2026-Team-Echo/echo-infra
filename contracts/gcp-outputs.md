@@ -26,6 +26,7 @@
 | `entrypoint_weights_internal_url` | **echo-was 실행기**(GKE 안, 같은 VPC): `PUT /weights`·`GET /counters`·`GET /summary`, Bearer 토큰. 토큰이 인터넷을 안 탄다 | `http://10.60.0.6:8080` | 코드 (11/3) |
 | `entrypoint_weights_url` | 운영자 점검용 공인 주소(`entrypoint_admin_cidrs` 에서만) | `http://<ip>:8080` | 코드 (11/2) |
 | `entrypoint_token_secret` | 운영자: `gcloud secrets versions access latest --secret=<값>` | `echo-dev-entry-weights-token` | 코드 (11/2) |
+| `entrypoint_secondary_ips` | **Cloudflare DNS**: `*.echoport.uk` 에 주 IP 와 함께 두 번째 A 레코드(프록시 켬). 한 IP 실패 시 Cloudflare 가 다른 IP 로 재시도 | `{"b": "34.x.x.x"}` | 코드 (11/4, 인프라 5.1) |
 | `entrypoint_grafana_url` | 데모 근거 화면(환경별 요청 수·5xx·p95·가중치·healthy 수) | `http://<ip>:3000` | 코드 (11/2) |
 
 업스트림(`entrypoint_upstreams`)은 환경별 인그레스 `host:port` 다(AWS ALB, GKE 인그레스). 각 환경 인그레스는 환경별 주소뿐 아니라 고정 호스트 `{서비스}.echoport.uk` 도 받아야 한다(Host 헤더를 그대로 넘긴다). 동작 원리와 로컬 실행은 [entrypoint/README.md](../entrypoint/README.md).

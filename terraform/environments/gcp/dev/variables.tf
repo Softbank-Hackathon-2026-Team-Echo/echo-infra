@@ -162,6 +162,12 @@ variable "entrypoint_default_weights" {
   }
 }
 
+variable "entrypoint_secondary_zones" {
+  description = "진입점 보조 VM 을 둘 존 접미사 목록 (예 [\"b\"] → asia-northeast3-b 에 echo-dev-entry-b). 비어 있으면 주 VM 한 대만 (인프라 5.1 PoC)"
+  type        = list(string)
+  default     = []
+}
+
 variable "entrypoint_admin_cidrs" {
   description = "가중치 API(8080)·Prometheus(9090)·Grafana(3000)에 붙을 수 있는 CIDR. 비어 있으면 열지 않는다"
   type        = list(string)

@@ -91,3 +91,18 @@ Prometheus 는 5초마다 긁고 7일 보관. 접근 로그는 JSON 으로 stdou
 - `*.echoport.uk` A 레코드 → `entrypoint_ip`. 프록시(주황 구름)를 켜면 Cloudflare 가 TLS 를 끝내고 **HTTP 80** 으로 온다. Envoy 는 그대로 80 만 받는다. 이때 `envoy.yaml` 의 `xff_num_trusted_hops` 를 1 로 올린다(진짜 클라이언트 IP).
 - 헬스체크는 Envoy 가 한다. Cloudflare 쪽 헬스체크·로드밸런싱은 켜지 않는다(두 군데서 전환하면 꼬인다).
 - Host 헤더는 그대로 업스트림에 넘어간다(`{서비스}.echoport.uk`). **각 환경의 인그레스가 이 고정 호스트도 받아야 한다**(환경별 주소 `{서비스}-{환경}-{8자}.echoport.uk` 에 더해). 서비스마다 호스트를 바꿔 주는 방식(`host_rewrite_literal`)은 필요해지면 weights-api 에 서비스 표를 더한다.
+
+## 진입점 두 곳 (인프라 5.1 단일 장애점 PoC)
+
+진입점 VM 이 한 대면 그 VM 이 죽을 때 대표 주소 전체가 멈춘다. 대응은 **같은 VM 을 다른 존에 하나 더** 두고, Cloudflare 의 `*.echoport.uk` 에 **프록시된 A 레코드를 두 IP 로** 두는 것이다. Cloudflare 는 한 IP 로 보낸 요청이 실패하면 같은 호스트의 다른 IP 로 다시 시도한다([round-robin DNS](https://developers.cloudflare.com/dns/manage-dns-records/how-to/round-robin-dns/), LB 애드온 없이). DNS 는 프록시 자체의 생존에만 쓰고, 환경 간 비율은 여전히 Envoy 가중치다.
+
+| 무엇 | 주 (`echo-dev-entry`, 존 a) | 보조 (`echo-dev-entry-b`, 존 b) |
+|---|---|---|
+| Envoy·Prometheus·Grafana | 같음 | 같음 (같은 startup 스크립트) |
+| 가중치 | echo-was 가 `PUT /weights` | `SYNC_FROM=http://<주 내부 IP>:8080` 으로 2초마다 `GET /weights` 해 맞춤. 주가 죽으면 마지막 값 유지 |
+| 토큰·Grafana 비밀번호 | 첫 부팅 때 만들어 Secret Manager 에 넣음 | Secret Manager 의 기존 값을 읽어 **같은 값** 사용 |
+| 판정(`/counters`) | echo-was 가 읽음 | VM 별 통계라 주와 합산되지 않음 (PoC 한계) |
+
+- 만들기: `terraform.tfvars` 에 `entrypoint_secondary_zones = ["b"]` → `make plan CLOUD=gcp` → apply. 출력 `entrypoint_secondary_ips["b"]` 를 Cloudflare 에 두 번째 A 레코드(프록시 켬)로 올린다.
+- 한계: 주가 죽어 있는 동안 echo-was 는 가중치를 바꾸지 못한다(보조는 마지막 값으로 흐른다). 주 복구 뒤 보조가 자동으로 다시 맞춘다. 규모가 커지면 관리형 LB 뒤 Envoy 여러 대 + 가중치 저장소 분리가 답이다.
+- 측정: `HOST=<대표 주소> DURATION=120 entrypoint/scripts/failover-probe.sh` 를 돌리면서 다른 창에서 주 VM 을 멈춘다(`gcloud compute instances stop echo-dev-entry --zone asia-northeast3-a`). 실패 구간(초)·실패 건수가 나온다. 값은 `docs/design-infra.md` 7절에 적는다.
