@@ -156,11 +156,88 @@ resource "google_compute_instance" "entry" {
       project_id      = var.project_id
       secret_token    = google_secret_manager_secret.entry["weights-token"].secret_id
       secret_grafana  = google_secret_manager_secret.entry["grafana-admin"].secret_id
+      sync_from       = "" # 주 진입점: 동기화 없음
     })
   }
 
   depends_on = [
     google_project_iam_member.entry,
     google_secret_manager_secret_iam_member.entry_adder,
+    google_secret_manager_secret_iam_member.entry_accessor,
+  ]
+}
+
+# 두 VM 이 같은 토큰·비밀번호를 쓰도록 Secret Manager 의 기존 값을 읽는다(시작 스크립트 read_secret_latest).
+resource "google_secret_manager_secret_iam_member" "entry_accessor" {
+  for_each  = google_secret_manager_secret.entry
+  secret_id = each.value.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.entry.email}"
+}
+
+# 진입점 두 곳 (인프라 5.1 단일 장애점 PoC). 다른 존에 같은 VM 을 하나 더 두고, Cloudflare 의 *.echoport.uk 에
+# 프록시된 A 레코드를 두 IP 로 둔다 — Cloudflare 는 한 IP 가 실패하면 같은 호스트의 다른 IP 로 재시도한다(LB 애드온 없이).
+# 가중치는 보조가 주의 /weights 를 2초마다 당겨 맞춘다(SYNC_FROM). echo-was 는 주 진입점만 부른다(주가 죽으면 비율 변경은 못 하고 마지막 값으로 흐른다).
+# 방화벽은 태그 entrypoint 로 같이 걸리고, 서비스 계정·비밀도 같이 쓴다. var.entrypoint_secondary_zones 가 비어 있으면 아무것도 만들지 않는다.
+resource "google_compute_address" "entry_secondary" {
+  for_each = toset(var.entrypoint_secondary_zones)
+  name     = "${local.entry_name}-${each.key}"
+  region   = var.region
+
+  depends_on = [google_project_service.this["compute.googleapis.com"]]
+}
+
+resource "google_compute_instance" "entry_secondary" {
+  for_each     = toset(var.entrypoint_secondary_zones)
+  name         = "${local.entry_name}-${each.key}"
+  machine_type = var.entrypoint_machine_type
+  zone         = "${var.region}-${each.key}"
+  tags         = ["entrypoint"]
+
+  allow_stopping_for_update = true
+
+  boot_disk {
+    initialize_params {
+      image = "debian-cloud/debian-12"
+      size  = 20
+      type  = "pd-balanced"
+    }
+  }
+
+  network_interface {
+    subnetwork = google_compute_subnetwork.this.id
+    access_config {
+      nat_ip = google_compute_address.entry_secondary[each.key].address
+    }
+  }
+
+  service_account {
+    email  = google_service_account.entry.email
+    scopes = ["cloud-platform"]
+  }
+
+  shielded_instance_config {
+    enable_secure_boot          = true
+    enable_vtpm                 = true
+    enable_integrity_monitoring = true
+  }
+
+  metadata = {
+    enable-oslogin = "TRUE"
+    startup-script = templatefile("${path.module}/entrypoint-startup.sh.tftpl", {
+      files           = local.entry_files
+      upstreams       = local.entry_upstreams
+      default_weights = local.entry_default_weights
+      project_id      = var.project_id
+      secret_token    = google_secret_manager_secret.entry["weights-token"].secret_id
+      secret_grafana  = google_secret_manager_secret.entry["grafana-admin"].secret_id
+      sync_from       = "http://${google_compute_instance.entry.network_interface[0].network_ip}:8080"
+    })
+  }
+
+  depends_on = [
+    google_project_iam_member.entry,
+    google_secret_manager_secret_iam_member.entry_adder,
+    google_secret_manager_secret_iam_member.entry_accessor,
   ]
 }

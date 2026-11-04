@@ -17,6 +17,7 @@ services:
       WEIGHTS_TOKEN: ${WEIGHTS_TOKEN:?WEIGHTS_TOKEN 을 .env 에 넣는다}
       UPSTREAMS: ${UPSTREAMS:?UPSTREAMS 를 .env 에 넣는다 (aws=host:port,gcp=host:port)}
       DEFAULT_WEIGHTS: ${DEFAULT_WEIGHTS:-aws=100,gcp=0}
+      SYNC_FROM: ${SYNC_FROM:-}
     volumes:
       - envoy-dynamic:/etc/envoy/dynamic
     ports:

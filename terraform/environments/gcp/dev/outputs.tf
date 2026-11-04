@@ -82,6 +82,11 @@ output "entrypoint_weights_internal_url" {
   value       = "http://${google_compute_instance.entry.network_interface[0].network_ip}:8080"
 }
 
+output "entrypoint_secondary_ips" {
+  description = "진입점 보조 VM 고정 IP (존 접미사별). Cloudflare *.echoport.uk 에 주 IP 와 함께 프록시된 A 레코드로 둔다 (인프라 5.1)"
+  value       = { for k, a in google_compute_address.entry_secondary : k => a.address }
+}
+
 output "entrypoint_grafana_url" {
   value = "http://${google_compute_address.entry.address}:3000"
 }
