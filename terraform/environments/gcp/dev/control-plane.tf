@@ -83,3 +83,47 @@ resource "google_artifact_registry_repository_iam_member" "control_plane_reader"
   role       = "roles/artifactregistry.reader"
   member     = "serviceAccount:${google_service_account.control_plane.email}"
 }
+
+# 실행기가 쓰는 비밀 두 개. 껍데기만 Terraform 이 갖고, 값(version)은 사람이 넣는다(저장소·state 에 값 0건).
+# 11/3 에 CLI 로 먼저 만든 것을 import 로 가져왔다 (인프라 3.3).
+#   cloudflare_dns_token : echoport.uk DNS 편집·영역 읽기 Cloudflare 토큰. DNS-01(cert-manager)·대표 주소 레코드(echo-was)가 읽는다.
+#   onprem_executor_token: 온프레 k3s SA echo-system/echo-executor 토큰. echo-was 가 온프레 배포를 요청할 때 읽는다.
+# 값을 다시 넣는 명령은 cluster-addons/README.md 와 onprem/README.md 의 "다시 만들 때" 절에 있다.
+locals {
+  control_plane_executor_secrets = {
+    cloudflare_dns_token  = "${local.control_plane_name}-cloudflare-dns-token"
+    onprem_executor_token = "${local.control_plane_name}-onprem-executor-token"
+  }
+}
+
+resource "google_secret_manager_secret" "control_plane_executor" {
+  for_each  = local.control_plane_executor_secrets
+  secret_id = each.value
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.this["secretmanager.googleapis.com"]]
+}
+
+# 위 두 비밀에만 읽기 권한을 준다(프로젝트 전체 secretAccessor 아님).
+resource "google_secret_manager_secret_iam_member" "control_plane_executor_accessor" {
+  for_each  = google_secret_manager_secret.control_plane_executor
+  secret_id = each.value.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.control_plane.email}"
+}
+
+# 이미 CLI 로 만들어 둔 자원을 state 로 가져온다. apply 한 번 뒤에는 이 블록을 지워도 된다.
+import {
+  for_each = local.control_plane_executor_secrets
+  to       = google_secret_manager_secret.control_plane_executor[each.key]
+  id       = "projects/${var.project_id}/secrets/${each.value}"
+}
+
+import {
+  for_each = local.control_plane_executor_secrets
+  to       = google_secret_manager_secret_iam_member.control_plane_executor_accessor[each.key]
+  id       = "projects/${var.project_id}/secrets/${each.value} roles/secretmanager.secretAccessor serviceAccount:${local.control_plane_name}@${var.project_id}.iam.gserviceaccount.com"
+}

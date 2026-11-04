@@ -53,3 +53,18 @@ kubectl --context echo-dev-eks apply -f cluster-addons/eks/anchor-ingress.yaml
    ```
 
    ingress-nginx 는 Secret 이 생기면 다시 시작하지 않아도 기본 인증서를 바꿔 쓴다. 확인: VPC 안(echo-was 파드)에서 `https://<아무 이름>.gcp-seoul.echoport.uk` 의 인증서 발급자가 Let's Encrypt 인지.
+
+## GKE cert-manager 적용 상태와 확인 (11/4)
+
+위 4) 는 **손으로 적용돼 있다**(Terraform·Argo CD 아님, 지민이 Helm·kubectl 로 적용, 라벨 `managed-by=jimin-manual`). 환경을 다시 세우면 4) 의 명령을 그대로 다시 돌린다. 손으로 만든 자원 전체 목록은 [docs/manual-resources.md](../docs/manual-resources.md).
+
+| 대상 | 값 | 확인 명령 (GKE 컨텍스트 `gke_team-echo-final_asia-northeast3-a_echo-dev-gke`) | 정상 |
+|---|---|---|---|
+| Helm release | `cert-manager` v1.21.3, ns `cert-manager` | `helm -n cert-manager list` | STATUS `deployed` |
+| 컨트롤러 3개 | cert-manager · cainjector · webhook | `kubectl -n cert-manager get deploy` | 모두 READY 1/1 |
+| Cloudflare 토큰 Secret | `cert-manager/cloudflare-dns-token` (값은 Secret Manager 에서 옴) | `kubectl -n cert-manager get secret cloudflare-dns-token` | 존재 (값은 출력하지 않는다) |
+| 발급자 | ClusterIssuer `letsencrypt-dns` | `kubectl get clusterissuer letsencrypt-dns` | READY True |
+| 인증서 | Certificate `ingress-nginx/wildcard-gcp-seoul` → Secret `wildcard-gcp-seoul-tls` | `kubectl -n ingress-nginx get certificate wildcard-gcp-seoul` | READY True |
+| 서버가 내주는 인증서 | `*.gcp-seoul.echoport.uk` | VPC 안(echo-was 파드)에서 `https://<아무 이름>.gcp-seoul.echoport.uk` | 발급자 Let's Encrypt |
+
+2026-11-04 확인: Deployment 3개 1/1, ClusterIssuer·Certificate 모두 Ready(Certificate "is up to date and has not expired").

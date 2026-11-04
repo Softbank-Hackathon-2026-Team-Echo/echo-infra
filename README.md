@@ -99,4 +99,5 @@ terraform -chdir=terraform/bootstrap/aws plan
 | [contracts/aws-outputs.md](contracts/aws-outputs.md)·[contracts/gcp-outputs.md](contracts/gcp-outputs.md) | 출력값 계약 |
 | [specs/infra-7-postgres-logical-replication-cutover.md](specs/infra-7-postgres-logical-replication-cutover.md)·[infra-8-rollback-reverse-replication.md](specs/infra-8-rollback-reverse-replication.md) | 데이터 이전(컷오버)·롤백 SPEC |
 | [replication/README.md](replication/README.md) · [replication/k8s/aws-tokyo/README.md](replication/k8s/aws-tokyo/README.md) | 이전 엔진 PoC·검증값 / 도쿄 A 실배포 매니페스트 |
+| [docs/manual-resources.md](docs/manual-resources.md) | 손으로 만든 자원(Cloudflare·cert-manager·실행기 비밀)과 다시 만드는 방법 |
 | [docs/references.md](docs/references.md) | 참고·가져온 코드 기록 |
