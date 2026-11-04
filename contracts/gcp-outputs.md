@@ -30,6 +30,17 @@
 
 업스트림(`entrypoint_upstreams`)은 환경별 인그레스 `host:port` 다(AWS ALB, GKE 인그레스). 각 환경 인그레스는 환경별 주소뿐 아니라 고정 호스트 `{서비스}.echoport.uk` 도 받아야 한다(Host 헤더를 그대로 넘긴다). 동작 원리와 로컬 실행은 [entrypoint/README.md](../entrypoint/README.md).
 
+## AI 에이전트 샌드박스 (별도 루트 `terraform/environments/gcp/ai-sandbox/`)
+
+운영 VPC(`echo-dev`)와 연결 없는 새 VPC + VM 1대. 설계는 echo-ai-agent `specs/ai-1-sdk-model-sandbox.md` 4·7절, 이 루트는 [specs/ai-sandbox-network.md](../specs/ai-sandbox-network.md).
+
+| 출력값 | 받는 쪽 | 사용법 | 상태 |
+|---|---|---|---|
+| `runner_vm_name` · `runner_vm_zone` | 김형래(AI 러너 배포) | `gcloud compute ssh <이름> --zone <zone> --tunnel-through-iap` | 코드 (11/4) |
+| `runner_service_account` | 기록용 | 프로젝트 역할 0개, 아래 비밀 읽기만 | 코드 (11/4) |
+| `runner_secret_ids` | 김형래 | 값 넣기: `gcloud secrets versions add <secret_id> --data-file=-`(`anthropic-api-key`·`was-runner-token`·`was-agent-token`) | 코드 (11/4) |
+| `network_name` · `subnet_cidr` | 대역 표 | `echo-sandbox` · `10.70.0.0/24` | 코드 (11/4) |
+
 ## 관제탑 (echo-was, `control-plane.tf`)
 
 AWS 도쿄 장애 중에도 이전을 지시하고 상태를 보여야 하므로 echo-was API·Worker·관리용 DB는 GCP 서울 GKE에 둔다. 프론트는 Cloudflare Pages를 그대로 쓴다.

@@ -1,0 +1,4 @@
+# 복사해서 backend.hcl 로 쓴다 (backend.hcl 은 커밋하지 않는다).
+# bucket 은 terraform/bootstrap/gcp 의 state_bucket 출력값(gcp/dev 와 같은 버킷). prefix 만 다르다.
+bucket = "echo-tfstate-<gcp-project-id>"
+prefix = "gcp/ai-sandbox"

@@ -29,6 +29,7 @@ flowchart LR
 | GCP 관제탑 기반 (echo-was GSA·비밀·IP·TLS) | `terraform/environments/gcp/dev/control-plane.tf` | 코드·plan 완료, apply 전 ([infra-15](specs/infra-15-gcp-control-plane-foundation.md)) |
 | 온프레 k3s (어느 리눅스 기기든 같은 설치 + Cloudflare Tunnel) | `onprem/`, `terraform/environments/aws/onprem-demo` | 적용 (11/3, 시연 기기 AWS 서울 EC2, [infra-2](specs/infra-2-onprem-k3s.md)) |
 | 관리 대상 앱 EKS·GKE 배치 → 진입점 업스트림 | `demo-app/` | 적용 (11/3, GKE 내부 LB 10.60.0.7 · EKS NLB, DB 는 환경별) |
+| AI 에이전트 샌드박스 (운영과 연결 없는 새 VPC + VM 1대, 역할 0개 SA) | `terraform/environments/gcp/ai-sandbox` | 코드 있음, plan·apply 전 ([ai-sandbox-network](specs/ai-sandbox-network.md)) |
 | 이전 엔진 — 복제·컷오버·롤백 (#7·#8) | `replication/` (로컬 PoC) · `replication/k8s/aws-tokyo/` (도쿄 A 매니페스트) | 로컬 PoC 검증(누락0·중복0, 쓰기정지 ≈0.3s·복귀 ≈0.46s) + 도쿄 A 1차안(apply 전) |
 
 ## 핵심 흐름
