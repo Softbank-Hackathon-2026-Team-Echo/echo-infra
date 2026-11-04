@@ -22,8 +22,8 @@ pg B -c "SELECT setval(pg_get_serial_sequence('demo.seq_write','id'), (SELECT CO
 pg B -c "ALTER SUBSCRIPTION echo_sub DISABLE;" >/dev/null
 # 역방향 B→A: A 가 B 를 구독 (copy_data=false: 지금까지의 행은 이미 A 에 있다)
 kubectl --context "$A_CTX" -n "$NS" exec -i echo-pg-0 -c postgres -- sh -c \
-  'psql -X -v ON_ERROR_STOP=1 -U postgres -d app -v conn="host=$0 port=5432 dbname=app user=repl_user password=$REPL_PASSWORD sslmode=require" \
-   -c "CREATE SUBSCRIPTION echo_sub_rev CONNECTION :'"'"'conn'"'"' PUBLICATION echo_pub WITH (copy_data = false);"' "$B_HOST" >/dev/null
+  'echo "CREATE SUBSCRIPTION echo_sub_rev CONNECTION :'"'"'conn'"'"' PUBLICATION echo_pub WITH (copy_data = false);" | \
+   psql -X -v ON_ERROR_STOP=1 -U postgres -d app -v conn="host=$0 port=5432 dbname=app user=repl_user password=$REPL_PASSWORD sslmode=require"' "$B_HOST" >/dev/null
 repoint B "$B_LOCAL"; repoint A "$B_HOST"
 pgb B "RESUME app;" >/dev/null; pgb A "RESUME app;" >/dev/null
 t1=$(now)

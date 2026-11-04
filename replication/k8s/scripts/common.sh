@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # 두 클러스터의 Postgres·PgBouncer 파드에 kubectl exec 로 psql 을 보내는 공통 함수. 비밀번호는 파드 env(Secret)에서만 읽는다(여기 출력 없음).
+# 주의: psql 변수(:'conn')는 -c 문자열에서는 치환되지 않는다(서버로 그대로 간다). CREATE SUBSCRIPTION 처럼 변수를 쓰는 SQL 은 echo … | psql 로 stdin 에 넣는다.
 set -euo pipefail
 export PATH="/opt/homebrew/share/google-cloud-sdk/bin:$PATH"
 A_CTX="${A_CTX:-echo-dev-eks}"
