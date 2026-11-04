@@ -132,14 +132,17 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 
 ## 9. 재구축·비용
 
-- 환경 하나 = `terraform apply`(클라우드) + `cluster-addons`(공유 문) 또는 `install.sh`(온프레). 재구축 리허설은 인프라 11(`TBD`).
+- 환경 하나 = `terraform apply`(클라우드) + `cluster-addons`(공유 문) 또는 `install.sh`(온프레).
+- **재구축 리허설(11/5 01:00, 인프라 11)**: 같은 코드로 AWS 환경을 옆에 새로 세움 — `terraform apply` 46개 10분 56초(EKS 컨트롤 플레인 8분 16초) + 공유 문 2분 7초 = **13분 3초**, 실패 0, dev 변경 0. ACM 인증서는 같은 검증 CNAME 으로 자동 발급. 기록 `docs/rehearsals/2026-11-05-rebuild-aws.md`.
+- 실제 dev 를 부수고 다시 세울 때는 위 2개 명령 밖에 재연결 5단계가 더 있다(Cloudflare `*.aws-tokyo` CNAME, 진입점 upstream tfvars, A DB 재생성, `subscribe.sh`, echo-was 환경 재확인). 같은 기록의 발견 표.
 - 예산 알림 두 클라우드 80%·100%. 노드는 작은 타입(e2-standard-2 등), 진입점은 e2-small.
 
 ## 10. 알려진 한계와 대안
 
 | 한계 | 지금 | 대안·계획 |
 |---|---|---|
-| 진입점 단일 장애점 | VM 1대 | 두 곳 + DNS 페일오버 PoC(5.1), 규모가 커지면 관리형 LB 뒤 Envoy 여러 대 |
+| 진입점 단일 장애점 | VM 1대 → 11/4 보조 VM(존 b) 적용, Cloudflare 두 번째 A 레코드·측정 대기 | 두 곳 + DNS 페일오버 PoC(5.1), 규모가 커지면 관리형 LB 뒤 Envoy 여러 대 |
+| 같은 계정에 두 번째 AWS 환경 | OIDC 공급자(계정당 1개)·ECR 이름(`echo/app`)·닻 ALB 이름이 환경 무관 | 리허설은 `-target`·`project` 변수로 우회. 후속: OIDC data 참조 옵션, ECR·ALB 이름을 환경에서 파생 |
 | 첫 이전 때 도착 환경 p95 `null` | Prometheus `usedonly` 수집 | 판정엔 영향 없음(건수 기반). 수집 옵션 조정 또는 사전 워밍 |
 | 클러스터 공통 OTel 수집기 | 진입점 Prometheus 만 | 인프라 9, DR 적용 뒤 |
 | 온프레가 진입점 업스트림에 아직 없음 | aws·gcp 2개 | `UPSTREAMS` 한 줄(인프라 13 선행) |
