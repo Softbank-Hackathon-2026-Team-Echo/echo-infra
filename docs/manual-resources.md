@@ -60,6 +60,7 @@ curl -sS -X POST "https://api.cloudflare.com/client/v4/zones/<영역 id>/dns_rec
 
 | 자원 | 어디 | 파일 | 다시 만들 때 |
 |---|---|---|---|
+| AWS Load Balancer Controller 3.6.2 (Helm release `aws-load-balancer-controller`) | EKS `echo-dev-eks` ns `kube-system` | 권한(역할 `echo-was-lbc`·정책·Pod Identity)은 11/4 Terraform `lbc.tf` 로 import. 컨트롤러는 [cluster-addons/README.md](../cluster-addons/README.md) 의 helm 명령 | 같은 README |
 | cert-manager v1.21.3 (Helm release `cert-manager`) | GKE `echo-dev-gke` ns `cert-manager` | `cluster-addons/gke/cert-manager/values.yaml` | [cluster-addons/README.md](../cluster-addons/README.md) 4) 절 |
 | Secret `cert-manager/cloudflare-dns-token` | 같음 | 파일 없음(값은 Secret Manager 에서 넘김) | 같은 절의 `gcloud secrets versions access … \| kubectl create secret` |
 | ClusterIssuer `letsencrypt-dns` · Certificate `ingress-nginx/wildcard-gcp-seoul` | 같음 | `cluster-addons/gke/cert-manager/wildcard-gcp-seoul.yaml` | 같은 절의 `kubectl apply -f` |

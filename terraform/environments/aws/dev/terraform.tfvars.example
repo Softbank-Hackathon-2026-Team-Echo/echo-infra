@@ -11,3 +11,7 @@ executor_google_service_account_id = "<uniqueId>"
 
 budget_limit_usd           = 150
 budget_notification_emails = ["<팀 메일>"]
+
+# ALB 컨트롤러 권한 이름 (lbc.tf). 기존 dev 는 "echo-was-lbc"/"echo-was-lbc-policy", 새 환경은 비워 둔다
+# lbc_role_name   = ""
+# lbc_policy_name = ""
