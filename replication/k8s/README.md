@@ -17,7 +17,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 |---|---|
 | `aws-tokyo/` | A: 네임스페이스·Postgres·PgBouncer(도현 1차안, 적용됨) + `30-expose.yaml`(NLB) + TLS(`40-tls.md`·`tls-patch.json`) + `pgbouncer-emptydir-patch.yaml`(ini 를 즉시 바꿀 수 있게) |
 | `gcp-seoul/` | B: 같은 구성(처음부터 TLS·emptyDir ini 포함). PgBouncer 백엔드 자리표시 `__A_HOST__` |
-| `scripts/` | `subscribe.sh`(A→B 세우기) · `lag.sh` · `cutover.sh` · `rollback.sh` · `verify.sh`(누락·중복 대조) · `writer.sh`(진입점 경유 쓰기 부하) · `rehearsal.sh`(한 번에: 대조→컷오버→대조→롤백→대조, `rehearsals/` 에 기록) · `common.sh` |
+| `scripts/` | `subscribe.sh`(A→B 세우기) · `lag.sh` · `cutover.sh` · `rollback.sh` · `verify.sh`(누락·중복 대조) · `ops-table.sh`(컷오버 결과 표 `echo_ops.cutover_runs` 만들기, 인프라 7.2) · `writer.sh`(진입점 경유 쓰기 부하) · `rehearsal.sh`(한 번에: 대조→컷오버→대조→롤백→대조, `rehearsals/` 에 기록) · `common.sh` |
 
 ## 적용 순서 (사람이, 데스크톱에서 · 인프라 담당 확인 뒤)
 
@@ -79,10 +79,12 @@ scripts/verify.sh
 ## echo-was 와의 접점
 
 - `DataSyncChecker.replication_lag(source, target)`(API 서버 8, 단계 `DATA_SYNC_CHECK`): publisher 쪽에서 `SELECT EXTRACT(EPOCH FROM replay_lag) FROM pg_stat_replication WHERE application_name = 'echo_sub'`(정방향; 역방향은 `echo_sub_rev` 를 B 에서). 접속은 `A_HOST`/`B_HOST`(GKE NAT 가 허용돼 있다)로 `pg_monitor` 권한 계정이 필요하다 — `scripts/monitor-user.sh` 가 양쪽에 `echo_monitor`(pg_monitor) 를 만들고 비밀번호를 Secret Manager `echo-dev-echo-was-pg-monitor-password`(껍데기는 Terraform, 값은 스크립트) 에 넣는다. echo-was 는 SecretSync 로 받는다(11/4).
+- **컷오버·롤백 결과 표 `echo_ops.cutover_runs`**(인프라 7.2, [#57](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-infra/issues/57)): `cutover.sh`·`rollback.sh` 가 RESUME 뒤 새 primary 에 한 줄(종류 CUTOVER/ROLLBACK · 쓰기 정지 ms · 드레인·따라잡기·전환 ms · 장부 건수 · 누락 · 중복)을 쓴다. echo-was 는 같은 `echo_monitor` 연결로 읽어 이전 계획 결과에 붙인다(API 서버 16, [echo-was#63](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-was/issues/63)). 기록이 실패해도 컷오버·롤백은 성공으로 둔다. 표는 `subscribe.sh`·`cutover.sh`·`rollback.sh` 가 시작할 때 `ops_table_ensure` 로 양쪽에 있는지 보고(없으면 만들고 켜진 구독을 REFRESH), 따로 `scripts/ops-table.sh` 로도 만든다 — A 를 새로 세워도 다시 생긴다.
 - 컷오버·롤백 **실행 자체**는 echo-was 이전 계획에 없다(복제 지연 확인만). 시연은 사람이 `cutover.sh` 를 돌린다. 이전 계획과 잇는 것(비율 100% 도착 뒤 컷오버 호출)은 후속.
 
 ## 주의
 
 - `FOR ALL TABLES` 발행이라도 **새 테이블은 B 에 DDL 을 먼저 넣고** `ALTER SUBSCRIPTION echo_sub REFRESH PUBLICATION`.
+- 복제되는 표의 키에 `bigserial` 을 쓰지 않는다: 논리 복제는 시퀀스를 넘기지 않아 반대쪽이 같은 번호를 다시 내면 키 충돌로 복제가 멈춘다(`echo_ops.cutover_runs` 는 uuid).
 - PgBouncer 가 1개여야 repoint 가 한 번에 끝난다(replicas 1 유지).
 - 재난(A 급사) 때는 롤백이 아니라 승격이다: B 에서 `ALTER SUBSCRIPTION echo_sub DISABLE` → B PgBouncer 를 `echo-pg` 로 repoint → RESUME. A 복구 뒤 `rollback.sh` 전에 재동기화가 필요하다(SPEC infra-8).
