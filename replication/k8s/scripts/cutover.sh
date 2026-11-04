@@ -7,6 +7,7 @@
 source "$(dirname "$0")/common.sh"
 : "${B_HOST:?B_HOST=<gcp-seoul/30-expose.yaml 의 EXTERNAL-IP>}"
 B_LOCAL="${B_LOCAL:-echo-pg}"
+ops_table_ensure   # 결과 표가 양쪽에 있는지(쓰기 정지 창 밖에서). 인프라 7.2
 t0=$(now)
 pgb A "PAUSE app;" >/dev/null; pgb B "PAUSE app;" >/dev/null
 tp=$(now)
@@ -29,3 +30,4 @@ pgb B "RESUME app;" >/dev/null; pgb A "RESUME app;" >/dev/null
 t1=$(now)
 printf '컷오버 완료. max(n)=%s\n 쓰기 정지 시간(PAUSE→RESUME): %.3fs\n   ├ PAUSE 드레인: %.3fs\n   ├ 따라잡기: %.3fs\n   └ 시퀀스·역방향 구독·repoint·RESUME: %.3fs\n' \
   "$maxA" "$(echo "$t1-$t0" | bc -l)" "$(echo "$tp-$t0" | bc -l)" "$(echo "$tc-$tp" | bc -l)" "$(echo "$t1-$tc" | bc -l)"
+record_run CUTOVER A B "$t0" "$tp" "$tc" "$t1"   # RESUME 뒤 B 에 결과 한 줄(echo-was 가 읽음)

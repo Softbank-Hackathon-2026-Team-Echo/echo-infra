@@ -5,6 +5,7 @@
 source "$(dirname "$0")/common.sh"
 : "${A_HOST:?A_HOST=<aws-tokyo/30-expose.yaml 의 NLB DNS>}"
 A_LOCAL="${A_LOCAL:-echo-pg}"
+ops_table_ensure   # 결과 표가 양쪽에 있는지(쓰기 정지 창 밖에서). 인프라 7.2
 t0=$(now)
 pgb A "PAUSE app;" >/dev/null; pgb B "PAUSE app;" >/dev/null
 tp=$(now)
@@ -27,3 +28,4 @@ pgb A "RESUME app;" >/dev/null; pgb B "RESUME app;" >/dev/null
 t1=$(now)
 printf '롤백 완료. max(n)=%s\n 복귀 시간(PAUSE→RESUME): %.3fs\n   ├ PAUSE 드레인: %.3fs\n   ├ 따라잡기: %.3fs\n   └ 시퀀스·정방향 구독·repoint·RESUME: %.3fs\n' \
   "$maxB" "$(echo "$t1-$t0" | bc -l)" "$(echo "$tp-$t0" | bc -l)" "$(echo "$tc-$tp" | bc -l)" "$(echo "$t1-$tc" | bc -l)"
+record_run ROLLBACK B A "$t0" "$tp" "$tc" "$t1"   # RESUME 뒤 A 에 결과 한 줄(echo-was 가 읽음)

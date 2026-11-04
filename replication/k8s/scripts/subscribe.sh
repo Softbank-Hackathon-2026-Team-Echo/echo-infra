@@ -16,6 +16,8 @@ GRANT ALL ON SCHEMA demo TO app_rw;
 GRANT ALL ON ALL TABLES IN SCHEMA demo TO app_rw;
 ALTER DEFAULT PRIVILEGES IN SCHEMA demo GRANT ALL ON TABLES TO app_rw;
 SQL
+echo "[1b] 컷오버 결과 표 echo_ops.cutover_runs (A·B 양쪽, 인프라 7.2)"
+ops_table_ensure
 echo "[2] B: CREATE SUBSCRIPTION echo_sub → $A_HOST (repl_user, TLS require, copy_data)"
 kubectl --context "$B_CTX" -n "$NS" exec -i echo-pg-0 -c postgres -- sh -c \
   'echo "CREATE SUBSCRIPTION echo_sub CONNECTION :'"'"'conn'"'"' PUBLICATION echo_pub WITH (copy_data = true);" | \
