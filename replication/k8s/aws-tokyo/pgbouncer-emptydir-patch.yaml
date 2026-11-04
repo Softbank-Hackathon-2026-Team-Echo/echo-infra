@@ -15,9 +15,12 @@ spec:
         - name: pgbouncer
           image: edoburu/pgbouncer:v1.26.1-p0
           volumeMounts:
+            # strategic merge 는 mountPath 로 합치므로, 지우지 않으면 읽기 전용 subPath 가 emptyDir 위에 남는다.
+            - { mountPath: /etc/pgbouncer/pgbouncer.ini, $patch: delete }
             - { name: conf, mountPath: /etc/pgbouncer }
             - { name: userlist, mountPath: /etc/pgbouncer/userlist.txt, subPath: userlist.txt }
       volumes:
+        - { name: ini, $patch: delete }
         - name: seed
           configMap: { name: echo-pgbouncer-ini }
         - name: conf
