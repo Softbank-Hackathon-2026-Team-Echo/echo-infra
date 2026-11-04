@@ -1,6 +1,6 @@
 # 도쿄 A Postgres (Primary, publisher). self-managed StatefulSet (ADR-0004: RDS 아님).
 # 논리 복제를 켜고(wal_level=logical), 복제 전용 유저와 FOR ALL TABLES 발행을 둔다.
-# 지금은 클러스터 내부(ClusterIP)만. B(서울) cross-cloud 연결·TLS·외부 노출은 다음 단계.
+# TLS: Secret echo-pg-tls(자체 서명, 40-tls.md) 를 마운트해 ssl=on. B 가 인터넷을 건너 A 를 구독한다. 외부 노출은 30-expose.yaml.
 ---
 # 초기화 스크립트: 첫 기동(빈 데이터 디렉터리)에서 한 번만 돈다.
 # 비밀번호는 env(Secret)에서 받아 psql 변수(:'var', 안전 인용)로 넣는다.
@@ -81,6 +81,12 @@ spec:
             - max_replication_slots=10
             - -c
             - listen_addresses=*
+            - -c
+            - ssl=on
+            - -c
+            - ssl_cert_file=/etc/postgresql/tls/tls.crt
+            - -c
+            - ssl_key_file=/etc/postgresql/tls/tls.key
           ports:
             - { name: postgres, containerPort: 5432 }
           env:
@@ -97,6 +103,7 @@ spec:
           volumeMounts:
             - { name: data, mountPath: /var/lib/postgresql/data }
             - { name: init, mountPath: /docker-entrypoint-initdb.d }
+            - { name: tls, mountPath: /etc/postgresql/tls, readOnly: true }
           readinessProbe:
             exec: { command: ["pg_isready", "-U", "postgres", "-d", "app"] }
             initialDelaySeconds: 10
@@ -113,6 +120,10 @@ spec:
           configMap:
             name: echo-pg-init
             defaultMode: 0755
+        - name: tls
+          secret:
+            secretName: echo-pg-tls
+            defaultMode: 0600     # 키 파일은 소유자만 읽게(Postgres 가 0640 초과 권한을 거부)
   volumeClaimTemplates:
     - metadata:
         name: data
