@@ -1,0 +1,63 @@
+> 출처: 김지민 개인 보관 `archive/softbank-hackathon-2026/infra-7-2-cutover-runs/cutover_run_1104.log`(저장소 밖) · 수집 시각 2026-11-05 03:19 KST · 저장소에 올림: 김지민 (11/5) \
+> 원문 그대로이며 정리본이 아닙니다. 바꾼 곳: 없음(머리 3줄만 더함)
+
+KUBECONFIG=/Users/jimin/.hermes/cache/scratch/dy_reply_1104/kube/config 준비됨 (AWS 706878591119)
+8f9ae8f merge: 인프라 7.2 컷오버 결과 표 기록
+A_HOST=echo-dev-pg-a-cb5bc23aab2d0c23.elb.ap-northeast-1.amazonaws.com B_HOST=34.22.85.222
+== 시작 전 대조 22:51:55
+A: 168|168|168|0|0
+B: 168|168|168|0|0
+== A (subscriber 관점) ==
+== B (publisher 관점: 붙어 있는 구독자와 지연) ==
+== B (subscriber 관점) ==
+echo_sub|t|2026-11-04 13:51:40.801847+00
+== 컷오버 A→B 22:51:57
+NOTICE:  created replication slot "echo_sub_rev" on publisher
+Defaulted container "pgbouncer" out of: pgbouncer, copy-ini (init)
+Defaulted container "pgbouncer" out of: pgbouncer, copy-ini (init)
+컷오버 완료. max(n)=168
+ 쓰기 정지 시간(PAUSE→RESUME): 5.817s
+   ├ PAUSE 드레인: 0.774s
+   ├ 따라잡기: 0.428s
+   └ 시퀀스·역방향 구독·repoint·RESUME: 4.615s
+ [결과 표] B 에 기록: CUTOVER (장부 168건, 누락 0, 중복 0) id=d222d562-9a5b-4aa8-b303-f7525552923f
+== 컷오버 뒤 대조 22:52:06
+A: 168|168|168|0|0
+B: 168|168|168|0|0
+== B (publisher 관점: 붙어 있는 구독자와 지연) ==
+echo_sub_rev|streaming|0.034355|0
+== B (subscriber 관점) ==
+echo_sub|f|
+== 롤백 B→A 22:52:11
+NOTICE:  dropped replication slot "echo_sub" on publisher
+NOTICE:  created replication slot "echo_sub" on publisher
+NOTICE:  dropped replication slot "echo_sub_rev" on publisher
+Defaulted container "pgbouncer" out of: pgbouncer, copy-ini (init)
+Defaulted container "pgbouncer" out of: pgbouncer, copy-ini (init)
+롤백 완료. max(n)=168
+ 복귀 시간(PAUSE→RESUME): 6.645s
+   ├ PAUSE 드레인: 0.714s
+   ├ 따라잡기: 0.288s
+   └ 시퀀스·정방향 구독·repoint·RESUME: 5.644s
+ [결과 표] A 에 기록: ROLLBACK (장부 168건, 누락 0, 중복 0) id=cb12f6ed-35eb-41b6-9edd-4ac9f5f65307
+== 롤백 뒤 대조 22:52:20
+A: 168|168|168|0|0
+B: 168|168|168|0|0
+== A (subscriber 관점) ==
+== B (publisher 관점: 붙어 있는 구독자와 지연) ==
+== B (subscriber 관점) ==
+echo_sub|t|2026-11-04 13:52:20.565043+00
+== A 결과 표
+CUTOVER|A→B|22:51:59.670|5817|774|428|4615|168|0|0
+ROLLBACK|B→A|22:52:13.087|6645|714|288|5644|168|0|0
+구독:   walsender: echo_sub:streaming
+Defaulted container "pgbouncer" out of: pgbouncer, copy-ini (init)
+PgBouncer 백엔드: app = host=echo-pg port=5432 dbname=app
+== B 결과 표
+CUTOVER|A→B|22:51:59.670|5817|774|428|4615|168|0|0
+ROLLBACK|B→A|22:52:13.087|6645|714|288|5644|168|0|0
+구독: echo_sub(enabled=true)  walsender: 
+Defaulted container "pgbouncer" out of: pgbouncer, copy-ini (init)
+PgBouncer 백엔드: app = host=echo-dev-pg-a-cb5bc23aab2d0c23.elb.ap-northeast-1.amazonaws.com port=5432 dbname=app
+B 구독 오류 수: 0
+DONE 22:52:29
