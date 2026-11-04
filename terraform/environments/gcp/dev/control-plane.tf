@@ -116,3 +116,25 @@ resource "google_secret_manager_secret_iam_member" "control_plane_executor_acces
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.control_plane.email}"
 }
+
+# 고객 앱 환경 변수·API 키 보관함(echo-was API 서버 10, echo-was #62·#65). echo-was 가 고객 앱 값을
+# Secret Manager 에 넣고(비밀 만들기·버전 추가) 배포 때 읽는다. 조건으로 이름 접두어 echo-app- 인 비밀만
+# 다룬다(관제탑 자체 비밀 echo-dev-… 는 위 secretAccessor 그대로). 11/4 gcloud 로 먼저 적용했고 운영 파드에서
+# 만들기·버전 추가·읽기 200, 접두어 밖 만들기 403 을 확인했다. 같은 구성원·역할·조건이라 apply 는 state 에만 더한다.
+data "google_project" "control_plane" {
+  project_id = var.project_id
+}
+
+resource "google_project_iam_member" "control_plane_app_secrets" {
+  project = var.project_id
+  role    = "roles/secretmanager.admin"
+  member  = "serviceAccount:${google_service_account.control_plane.email}"
+
+  condition {
+    title       = "echo-app-secrets-only"
+    description = "echo-was API 10: customer app env secrets only"
+    expression  = "resource.name.startsWith(\"projects/${data.google_project.control_plane.number}/secrets/echo-app-\")"
+  }
+
+  depends_on = [google_project_service.this["cloudresourcemanager.googleapis.com"]]
+}
