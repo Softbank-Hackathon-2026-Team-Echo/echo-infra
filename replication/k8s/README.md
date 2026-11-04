@@ -15,7 +15,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 
 | 파일 | 내용 |
 |---|---|
-| `aws-tokyo/` | A: 네임스페이스·Postgres·PgBouncer(도현 1차안, 적용됨) + `30-expose.yaml`(NLB) + TLS(`40-tls.md`·`tls-patch.json`) + `pgbouncer-emptydir-patch.yaml`(ini 를 즉시 바꿀 수 있게) |
+| `aws-tokyo/` | A: 네임스페이스·Postgres(TLS)·PgBouncer(emptyDir ini)·`30-expose.yaml`(NLB). `kustomization.yaml` 로 한 번에(`apply -k`), **클러스터 실제 상태와 같음**(11/4 `diff -k` 확인) |
 | `gcp-seoul/` | B: 같은 구성(처음부터 TLS·emptyDir ini 포함). PgBouncer 백엔드 자리표시 `__A_HOST__` |
 | `scripts/` | `subscribe.sh`(A→B 세우기) · `lag.sh` · `cutover.sh` · `rollback.sh` · `verify.sh`(누락·중복 대조) · `writer.sh`(진입점 경유 쓰기 부하) · `rehearsal.sh`(한 번에: 대조→컷오버→대조→롤백→대조, `rehearsals/` 에 기록) · `common.sh` |
 
@@ -25,13 +25,9 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 export PATH="/opt/homebrew/share/google-cloud-sdk/bin:$PATH"
 A=echo-dev-eks; B=gke_team-echo-final_asia-northeast3-a_echo-dev-gke; cd replication/k8s
 
-# 0) A: TLS 켜기 + PgBouncer ini 를 emptyDir 로 (각각 재시작 1회)
-#    40-tls.md 의 명령(Secret echo-pg-tls → tls-patch.json)
-kubectl --context $A -n echo-data patch deploy echo-pgbouncer --patch-file aws-tokyo/pgbouncer-emptydir-patch.yaml
-kubectl --context $A -n echo-data rollout status deploy/echo-pgbouncer
-
-# 1) A 를 서울에서 보이게 (NLB, GCP NAT 만)
-kubectl --context $A apply -f aws-tokyo/30-expose.yaml
+# 0~1) A 전체 (Postgres TLS · PgBouncer emptyDir · NLB). Secret 두 개를 먼저 손으로(aws-tokyo/README.md · 40-tls.md)
+kubectl --context $A diff -k aws-tokyo    # 바뀌는 것 확인(빈 출력 = 이미 같음)
+kubectl --context $A apply -k aws-tokyo
 A_HOST=$(kubectl --context $A -n echo-data get svc echo-pg-external -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'); echo "$A_HOST"
 
 # 2) B: 비밀을 A 와 같은 값으로 (같은 계정·비밀번호여야 앱·복제가 양쪽에서 같은 접속 문자열을 쓴다)
