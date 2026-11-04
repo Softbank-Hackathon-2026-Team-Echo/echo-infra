@@ -43,6 +43,8 @@ curl -sS -X POST "https://api.cloudflare.com/client/v4/zones/<영역 id>/dns_rec
 |---|---|---|---|
 | 구성 규칙 "진입점 대표 주소: 원본 HTTP 80 (Flexible)" | 조건 `http.host ne "app.echoport.uk"` → SSL 을 Flexible 로. 영역 전체 SSL 모드는 "전체(Full)" 그대로 | 진입점 Envoy 가 80 만 받는다 | 대시보드 규칙 → 구성 규칙 → 규칙 만들기 (위 조건·SSL=Flexible). echo-was 용 토큰 권한은 DNS 편집·영역 읽기뿐이라 이 규칙은 대시보드에서 바꾼다 |
 
+**보류 기록(11/4)**: 이 규칙 때문에 Cloudflare → 진입점 구간은 암호화 없는 HTTP 80 이다. 손님 → Cloudflare 구간은 HTTPS 다. 시연에는 영향이 없어 Full (strict) 전환(Envoy 443 + Origin 인증서)은 보류했다. 하게 되면 할 일과 선택지는 [이슈 46](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-infra/issues/46).
+
 ### Cloudflare API 토큰 (echo-was 용)
 
 | 항목 | 내용 |
