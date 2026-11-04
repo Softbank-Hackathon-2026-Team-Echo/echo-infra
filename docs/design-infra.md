@@ -1,4 +1,4 @@
-# 인프라·이전 엔진 설계 (제출 문서 인프라 절 초안, 2026-11-04)
+# 인프라·이전 엔진 설계 (제출 문서 인프라 절 초안, 2026-11-04 저녁 갱신)
 
 > 11/7 제출 설계 문서(프론트 10)의 인프라 절. 원본은 이 저장소의 README·`entrypoint/README.md`·`cluster-addons/README.md`·`replication/k8s/README.md`. 숫자는 측정값만 적고, 아직 없는 값은 `TBD` 로 둔다.
 
@@ -89,6 +89,8 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 - cross-cloud 는 공개 LB 지만 상대 클라우드 NAT IP 만 받고 scram + TLS.
 - 대조: 순번 쓰기 N건 → 누락 0·중복 0 (`verify.sh`). 재난(A 급사)은 롤백이 아니라 승격(B 구독 DISABLE → B 백엔드를 B 로).
 - 스크립트: `replication/k8s/scripts/{subscribe,lag,cutover,rollback,verify,writer,rehearsal}.sh`. 리허설 1회가 `rehearsals/<시각>.md` 표를 남긴다.
+- **11/4 실배선 상태**: A(도쿄) Postgres 17 `ssl=on`·`wal_level=logical`·발행 `echo_pub`, NLB `echo-dev-pg-a-….elb.ap-northeast-1.amazonaws.com:5432`(GCP NAT 34.64.211.218/32 만, 자체 서명 `CN=echo-pg-a`, `sslmode=require`). B(서울) 같은 구성, LB `34.22.85.222:5432`(AWS NAT 18.180.171.76/32 만). B 구독 `echo_sub` 생성 → A 에서 `streaming`, `demo.seq_write` 동기 상태 ready. 두 PgBouncer 백엔드는 모두 A(B 는 라이브 ini 와 ConfigMap 둘 다 A 로 맞춤). 계정은 양쪽 동일(`app_rw`·`repl_user`·`pgbouncer_auth`·`echo_monitor`).
+- **복제 지연 판정 연결**: echo-was `PostgresDataSyncChecker`(DATA_SYNC_CHECK) 가 발행 쪽 `pg_stat_replication.replay_lag` 를 `echo_monitor`(pg_monitor, 읽기 전용) 계정으로 읽는다. 비밀번호는 GCP Secret Manager `echo-dev-echo-was-pg-monitor-password` 에만(껍데기 Terraform, 값은 `monitor-user.sh`).
 
 ## 6. 측정·관측 (F17)
 
@@ -98,6 +100,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 | rps·5xx 비율·p95·healthy | 진입점 `GET /summary`(Prometheus 5초 간격) · Grafana 「Echo 고정 진입점」 |
 | 이전 단계별 시각·판정·롤백 | echo-was 이전 실행 로그(`PLAN_CREATED … WEIGHT_APPLIED JUDGE_PASSED … SUCCEEDED`) |
 | 쓰기 정지·복제 지연·누락/중복 | `rehearsal.sh` → `replication/k8s/rehearsals/<시각>.md` |
+| 복제 지연 (이전 중 DATA_SYNC_CHECK 판정) | A/B `pg_stat_replication.replay_lag`(계정 `echo_monitor`), echo-was `DATA_SYNC_CHECKER_MODE=postgres` |
 | 합성 트래픽 | `entrypoint/loadgen`(k6, GKE 에서 진입점 공인 주소로 초당 50건, 시연 때만 켬) |
 
 ## 7. 측정값 (실측만)
@@ -107,6 +110,9 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 | 운영 이전 aws→gcp (10→50→100%) | 9.1초, 5xx 0 | 11/3 22:37 지민, echo-was #8 |
 | 실패 주입 → 자동 롤백 | 1.5초, `THRESHOLD_EXCEEDED` → `ROLLED_BACK` | 같음 |
 | 복귀 gcp→aws | 10.4초, p95 ≈ 96ms | 같음 |
+| **실제 실행기** 이전 aws→gcp (대시보드, 50 rps 부하) | 9초, 실패 요청 0 | 11/4 12:27~12:37 지민, echo-frontend #51 |
+| 실제 실행기 복귀 gcp→aws (Start failback) | 13초, 실패 요청 0 | 같음 |
+| 실제 실행기 이전 중 Roll back | 되돌림 3초 | 같음 |
 | 장애 시 우회 | 1초 안 (로컬) | `entrypoint/README.md` |
 | 컷오버 쓰기 정지 / 롤백 복귀 | `TBD` (인프라 7.1 리허설) | `rehearsals/` |
 
@@ -114,7 +120,10 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 
 - 장기 키 없음: GitHub Actions 는 OIDC(AWS 역할 `echo-dev-ci-build`, GCP WIF), 실행기는 관제탑 GSA 의 Google ID 토큰 → AWS STS. 비밀은 Secret Manager 참조.
 - 공개 경로 최소: 진입점 80 만 공개, ALB 는 진입점·GKE NAT 두 IP, nginx 는 내부 LB, DB cross-cloud 는 상대 NAT IP 만 + TLS, GKE·EKS 노드 비공개, 온프레 들어오는 포트 0(터널).
-- 온프레 실행기: 전용 SA + ClusterRole 최소 권한 + ValidatingAdmissionPolicy(라벨 `managed-by=echo-was` 네임스페이스 밖은 거부).
+- 온프레 실행기: 전용 SA + ClusterRole 최소 권한(네임스페이스 get·list·create·delete, 노드 get·list — 11/4 환경 카드 노드 수용 추가, RoleBinding get·create, `echo-app-deployer` bind) + ValidatingAdmissionPolicy(라벨 `managed-by=echo-was` 네임스페이스 밖은 거부).
+- DB 계정 분리: `app_rw`(앱 쓰기)·`repl_user`(복제 전용, REPLICATION)·`pgbouncer_auth`(auth_query 만)·`echo_monitor`(pg_monitor 읽기 전용). 비밀번호는 k8s Secret `echo-pg-secret`·GCP Secret Manager 에만, 저장소·이슈·Slack 에 0건.
+- 손으로 만든 자원은 Terraform 으로 옮기거나 목록으로 남긴다(`docs/manual-resources.md`, 인프라 3.3): 실행기 비밀 껍데기 3개는 Terraform(import 뒤 No changes), Cloudflare 레코드·규칙과 cert-manager 는 문서.
+- AI 에이전트 샌드박스(형래, PR #50): 같은 프로젝트의 **별도 VPC**(피어링 없음) + VM 1대, 공인 IP 없음, 인바운드 IAP 22 만, 아웃바운드 443 만, VM SA 프로젝트 역할 0개. plan 16 add/0 change/0 destroy 확인, apply 11/5.
 - 후속(보안·거버넌스 7~10, 형래): 자동 전환 목적지 자격, DB 쓰기 소유권 fencing, 네트워크 허용표, 신원 분리.
 
 ## 9. 재구축·비용
@@ -131,3 +140,5 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 | 클러스터 공통 OTel 수집기 | 진입점 Prometheus 만 | 인프라 9, DR 적용 뒤 |
 | 온프레가 진입점 업스트림에 아직 없음 | aws·gcp 2개 | `UPSTREAMS` 한 줄(인프라 13 선행) |
 | 컷오버 실행이 이전 계획과 분리 | 사람이 `cutover.sh` | echo-was 는 복제 지연만 확인(DATA_SYNC_CHECK). 비율 100% 뒤 컷오버 호출은 후속 |
+| PgBouncer repoint 가 파드 emptyDir 에만 남음 | 파드 재시작 시 ConfigMap 값으로 복귀 | `cutover.sh`·`rollback.sh` 가 ConfigMap 도 함께 갱신(후속, 지민). B 는 11/4 ConfigMap 을 A 로 맞춰 둠 |
+| A PgBouncer → B 연결(컷오버 뒤)이 평문 | A ini 에 `server_tls_sslmode` 없음 | `server_tls_sslmode = require` 한 줄 추가(#45 요청) |
