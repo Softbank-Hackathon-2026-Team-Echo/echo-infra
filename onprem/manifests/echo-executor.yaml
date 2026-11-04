@@ -1,6 +1,7 @@
 # echo-was 실제 실행기가 이 k3s 에 고객 앱을 배포할 때 쓰는 신원과 권한 (echo-was API 서버 3-2 SPEC 5.6).
 #
-#   클러스터 전체: 네임스페이스 만들기·보기·지우기, RoleBinding 만들기, ClusterRole echo-app-deployer 묶기(bind)만.
+#   클러스터 전체: 네임스페이스 만들기·보기·지우기, 노드 읽기(보기·목록만), RoleBinding 만들기,
+#                  ClusterRole echo-app-deployer 묶기(bind)만.
 #   앱 네임스페이스 안: 실행기가 네임스페이스를 만든 직후 RoleBinding(echo-app-deployer → 자기 SA)을 만들고
 #                      그 안에서만 Deployment·Service·Ingress·Secret 을 다룬다. exec·권한 변경 없음.
 #
@@ -41,6 +42,10 @@ rules:
   - apiGroups: [""]
     resources: [namespaces]
     verbs: [get, list, create, delete]
+  # 환경 접속 확인(echo-was API 서버 12)이 환경 카드의 노드 수를 읽는다. 읽기만(get·list).
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list]
   - apiGroups: [rbac.authorization.k8s.io]
     resources: [rolebindings]
     verbs: [get, create]

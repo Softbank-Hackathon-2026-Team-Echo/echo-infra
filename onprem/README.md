@@ -102,7 +102,7 @@ echo-was 일꾼 ─HTTPS(Bearer SA 토큰)─▶ Cloudflare(K3S_API_HOST) ─터
 |---|---|
 | 창구 주소 규칙 | `K3S_API_HOST` 를 주면 `manifests/cloudflared.yaml` 의 `# __K3S_API_RULE__` 자리에 들어간다. 원본 인증서는 클러스터 CA 로 검증(`caPool` + `originServerName`, `noTLSVerify` 아님) |
 | 실행기 신원 | `manifests/echo-executor.yaml`: SA `echo-system/echo-executor` + 만료 없는 토큰 Secret `echo-executor-token` |
-| 권한 | 클러스터: 네임스페이스 get·list·create·delete, RoleBinding get·create, ClusterRole `echo-app-deployer` bind 만. 앱 네임스페이스 안: 실행기가 만든 RoleBinding 으로 `echo-app-deployer`(Deployment·ReplicaSet·Service·Secret·Ingress 쓰기, Pod·로그·이벤트 읽기) |
+| 권한 | 클러스터: 네임스페이스 get·list·create·delete, 노드 get·list(환경 카드의 노드 수 읽기, 읽기 전용), RoleBinding get·create, ClusterRole `echo-app-deployer` bind 만. 앱 네임스페이스 안: 실행기가 만든 RoleBinding 으로 `echo-app-deployer`(Deployment·ReplicaSet·Service·Secret·Ingress 쓰기, Pod·로그·이벤트 읽기) |
 | 울타리 | ValidatingAdmissionPolicy `echo-executor-managed-namespaces`: 이 SA 는 `app.kubernetes.io/managed-by=echo-was` 라벨 네임스페이스만 만들고 지우며, RoleBinding 은 그 안에서 `echo-app-deployer` → 자기 자신만 |
 
 ```bash
