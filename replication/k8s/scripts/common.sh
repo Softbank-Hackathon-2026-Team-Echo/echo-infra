@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # 두 클러스터의 Postgres·PgBouncer 파드에 kubectl exec 로 psql 을 보내는 공통 함수. 비밀번호는 파드 env(Secret)에서만 읽는다(여기 출력 없음).
 # 주의: psql 변수(:'conn')는 -c 문자열에서는 치환되지 않는다(서버로 그대로 간다). CREATE SUBSCRIPTION 처럼 변수를 쓰는 SQL 은 echo … | psql 로 stdin 에 넣는다.
-set -euo pipefail
-export PATH="/opt/homebrew/share/google-cloud-sdk/bin:$PATH"
+# -E: 함수·명령 치환 안의 실패에도 ERR trap(guard_on_error)이 걸리게 한다.
+set -Eeuo pipefail
+# 뒤에 붙인다: 앞에 두면 gcloud SDK 의 kubectl 이 PATH 의 다른 kubectl(시험용 tests/bin 포함)을 가린다.
+export PATH="$PATH:/opt/homebrew/share/google-cloud-sdk/bin"
 A_CTX="${A_CTX:-echo-dev-eks}"
 B_CTX="${B_CTX:-gke_team-echo-final_asia-northeast3-a_echo-dev-gke}"
 NS="${NS:-echo-data}"
+# 각 클러스터 안에서 PgBouncer 가 자기 쪽 Postgres 를 부르는 주소. 백엔드가 이 값이면 "자기 쪽이 쓰기 담당".
+A_LOCAL="${A_LOCAL:-echo-pg}"
+B_LOCAL="${B_LOCAL:-echo-pg}"
 
 # psql on Postgres pod: pg <A|B> "<sql>" [-v var=val ...]
 pg() { local side=$1; shift; local ctx; [[ $side == A ]] && ctx=$A_CTX || ctx=$B_CTX
@@ -47,6 +52,22 @@ CREATE TABLE IF NOT EXISTS echo_ops.cutover_runs (
   max_n           bigint,
   created_at      timestamptz NOT NULL DEFAULT now()
 );
+-- 인프라 12.1(echo-infra#66): 어느 이전 계획의 실행인지, 정상 컷오버인지 승격인지, 승격 때 잃었을 수 있는 범위.
+-- 칸 더하기는 복제되지 않는다. 이 표에 행을 쓰는 것은 이 스크립트들뿐이고 ensure 는 쓰기 전에 양쪽을 다 맞추므로
+-- 한쪽에만 칸이 있는 동안 복제될 행이 생기지 않는다.
+ALTER TABLE echo_ops.cutover_runs ADD COLUMN IF NOT EXISTS plan_id uuid;
+ALTER TABLE echo_ops.cutover_runs ADD COLUMN IF NOT EXISTS mode text;
+ALTER TABLE echo_ops.cutover_runs ADD COLUMN IF NOT EXISTS rpo_estimate_ms integer;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conrelid = 'echo_ops.cutover_runs'::regclass AND conname = 'cutover_runs_mode_check') THEN
+    ALTER TABLE echo_ops.cutover_runs
+      ADD CONSTRAINT cutover_runs_mode_check CHECK (mode IS NULL OR mode IN ('NORMAL', 'PROMOTE'));
+  END IF;
+END $$;
+-- 같은 계획으로 같은 종류를 두 번 기록하지 않는다(멱등의 마지막 방어선).
+CREATE UNIQUE INDEX IF NOT EXISTS cutover_runs_plan_kind
+  ON echo_ops.cutover_runs (plan_id, kind) WHERE plan_id IS NOT NULL;
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'echo_monitor') THEN
     GRANT USAGE ON SCHEMA echo_ops TO echo_monitor;
@@ -69,13 +90,84 @@ ops_table_ensure() {
 }
 
 # RESUME 뒤 새 primary 에서 장부(demo.seq_write)를 대조하고 결과 한 줄을 쓴다. 실패해도 컷오버·롤백은 성공으로 둔다.
-# record_run <CUTOVER|ROLLBACK> <from A|B> <to A|B> <t0 PAUSE> <tp 드레인 끝> <tc 따라잡기 끝> <t1 RESUME>
+# record_run <CUTOVER|ROLLBACK> <from A|B> <to A|B> <t0 PAUSE> <tp 드레인 끝> <tc 따라잡기 끝> <t1 RESUME> [mode NORMAL|PROMOTE] [rpo_ms]
+# PLAN_ID 가 있으면 함께 남긴다(echo-was 가 시간 창 대신 계획 id 로 찾는다).
 record_run() {
-  local kind=$1 from=$2 to=$3 t0=$4 tp=$5 tc=$6 t1=$7 v total missing dup maxn id
+  local kind=$1 from=$2 to=$3 t0=$4 tp=$5 tc=$6 t1=$7 mode=${8:-NORMAL} rpo=${9:-NULL} v total missing dup maxn id
+  local plan_sql=NULL; [[ -n ${PLAN_ID:-} ]] && plan_sql="'$PLAN_ID'"
   v=$(pg "$to" -c "SELECT count(*), CASE WHEN count(*) = 0 THEN 0 ELSE (max(n) - min(n) + 1) - count(DISTINCT n) END, count(*) - count(DISTINCT n), COALESCE(max(n), 0) FROM demo.seq_write;" 2>/dev/null) \
     || { echo " [결과 표] 장부 대조 실패 — 기록하지 않음(컷오버·롤백 자체는 끝났다)"; return 0; }
   IFS='|' read -r total missing dup maxn <<<"$v"
-  id=$(pg "$to" -c "INSERT INTO echo_ops.cutover_runs (kind, from_side, to_side, paused_at, resumed_at, write_pause_ms, drain_ms, catchup_ms, switch_ms, rows_total, missing_rows, duplicate_rows, max_n) VALUES ('$kind', '$from', '$to', to_timestamp($t0), to_timestamp($t1), round(($t1 - $t0) * 1000), round(($tp - $t0) * 1000), round(($tc - $tp) * 1000), round(($t1 - $tc) * 1000), $total, $missing, $dup, $maxn) RETURNING id;" 2>/dev/null | head -1) \
+  id=$(pg "$to" -c "INSERT INTO echo_ops.cutover_runs (kind, from_side, to_side, paused_at, resumed_at, write_pause_ms, drain_ms, catchup_ms, switch_ms, rows_total, missing_rows, duplicate_rows, max_n, plan_id, mode, rpo_estimate_ms) VALUES ('$kind', '$from', '$to', to_timestamp($t0), to_timestamp($t1), round(($t1 - $t0) * 1000), round(($tp - $t0) * 1000), round(($tc - $tp) * 1000), round(($t1 - $tc) * 1000), $total, $missing, $dup, $maxn, $plan_sql, '$mode', $rpo) RETURNING id;" 2>/dev/null | head -1) \
     || { echo " [결과 표] 기록 실패 — scripts/ops-table.sh 로 표를 만든 뒤 다시 하면 된다(컷오버·롤백 자체는 끝났다)"; return 0; }
   printf ' [결과 표] %s 에 기록: %s (장부 %s건, 누락 %s, 중복 %s) id=%s\n' "$to" "$kind" "$total" "$missing" "$dup" "$id"
+}
+
+# ── 멱등·쓰기 담당 확인 (인프라 12.1, echo-infra#66) ───────────────────────────────────────────────
+# 종료 코드: 0 = 끝남(이번에 했거나 이미 되어 있음) · 1 = 바뀐 것 없음(쓰기 담당 그대로, RESUME 함)
+#            2 = 부분 상태(사람이 확인해야 함. PgBouncer 가 PAUSE 로 남아 있을 수 있다)
+# 일꾼·Job 은 0 이면 다음 단계, 1 이면 트래픽 롤백, 2 면 멈추고 사람을 부른다(echo-was API 서버 17).
+
+# 구독이 켜져 있으면 1, 없거나 꺼져 있으면 0: sub_enabled <A|B> <구독 이름>
+sub_enabled() { pg "$1" -c "SELECT count(*) FROM pg_subscription WHERE subname = '$2' AND subenabled;"; }
+
+# PgBouncer 백엔드 host: pgb_backend <A|B>
+pgb_backend() { local side=$1 ctx; [[ $side == A ]] && ctx=$A_CTX || ctx=$B_CTX
+  kubectl --context "$ctx" -n "$NS" exec -i deploy/echo-pgbouncer -- \
+    sed -n 's/^app = host=\([^ ]*\).*/\1/p' /etc/pgbouncer/pgbouncer.ini; }
+
+# 지금 쓰기 담당: A · B · PARTIAL(…). 구독 방향과 두 PgBouncer 백엔드가 같은 쪽을 가리킬 때만 그쪽이다.
+# - 구독: A 가 쓰기 담당이면 B 의 echo_sub 가 켜져 있고 A 에 echo_sub_rev 가 없다. B 면 그 반대(cutover.sh 뒤).
+#   echo-was DataSyncChecker 의 TARGET_IS_WRITER 판정(#73)과 같은 사실을 본다.
+# - PgBouncer: 쓰기 담당 쪽은 자기 쪽 Postgres(*_LOCAL)를, 반대쪽은 인터넷 너머를 백엔드로 둔다.
+writer_side() {
+  local fwd rev a_be b_be by_sub=? by_pgb=?
+  fwd=$(sub_enabled B echo_sub); rev=$(sub_enabled A echo_sub_rev)
+  if [[ $fwd == 1 && $rev == 0 ]]; then by_sub=A; elif [[ $fwd == 0 && $rev == 1 ]]; then by_sub=B; fi
+  a_be=$(pgb_backend A); b_be=$(pgb_backend B)
+  if [[ $a_be == "$A_LOCAL" && $b_be != "$B_LOCAL" ]]; then by_pgb=A
+  elif [[ $b_be == "$B_LOCAL" && $a_be != "$A_LOCAL" ]]; then by_pgb=B; fi
+  if [[ $by_sub != "?" && $by_sub == "$by_pgb" ]]; then echo "$by_sub"
+  else echo "PARTIAL(구독=$by_sub, PgBouncer=$by_pgb, A 백엔드=$a_be, B 백엔드=$b_be)"; fi
+}
+
+# PLAN_ID(선택)는 uuid 여야 한다. SQL 에 그대로 들어가므로 형식을 먼저 막는다.
+plan_id_check() {
+  [[ -z ${PLAN_ID:-} || $PLAN_ID =~ ^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$ ]] && return 0
+  echo "[중단] PLAN_ID 가 uuid 형식이 아니다 — 바뀐 것 없음" >&2; exit 1
+}
+
+# 이 계획으로 이미 기록한 실행 수: plan_runs <A|B> <CUTOVER|ROLLBACK>. PLAN_ID 가 없으면 0.
+plan_runs() { [[ -z ${PLAN_ID:-} ]] && { echo 0; return; }
+  pg "$1" -c "SELECT count(*) FROM echo_ops.cutover_runs WHERE plan_id = '$PLAN_ID' AND kind = '$2';"; }
+
+# 시작 전 확인: 이미 끝났으면 exit 0, 판단할 수 없으면 exit 2. preflight <CUTOVER|ROLLBACK> <from> <to>
+preflight() {
+  local kind=$1 from=$2 to=$3 w n
+  # 따로 대입한다: [[ $(…) ]] 안에서 조회가 실패하면 빈 값이 "기록 있음"으로 읽힌다.
+  n=$(plan_runs "$to" "$kind")
+  if [[ $n != 0 ]]; then
+    echo "[건너뜀] ALREADY_DONE: 이 계획($PLAN_ID)의 $kind 기록이 이미 있다"; exit 0
+  fi
+  w=$(writer_side)
+  case $w in
+    "$to")   echo "[건너뜀] ALREADY_WRITER: 쓰기 담당이 이미 $to 다"; exit 0 ;;
+    "$from") echo "[확인] 쓰기 담당 $from → $to 로 옮긴다" ;;
+    *)       echo "[중단] 쓰기 담당을 판단할 수 없다: $w — replication/k8s/README.md '부분 상태 복구'를 따른다" >&2; exit 2 ;;
+  esac
+}
+
+# 실패한 단계에 맞춰 끝낸다. 스크립트가 GUARD_PHASE 를 precheck → paused → switching → done 으로 옮긴다.
+# - paused: PAUSE 했지만 아직 아무것도 바꾸지 않음 → 양쪽 RESUME, 쓰기 담당 그대로(1)
+# - switching: 구독·백엔드를 바꾸는 중 → 옛 쪽에 쓰면 복제되지 않으므로 RESUME 하지 않고 멈춘다(2)
+GUARD_PHASE=precheck
+guard_on_error() {
+  local rc=$?; trap - ERR
+  case $GUARD_PHASE in
+    precheck)  echo "[중단] 시작 전 확인 실패(rc=$rc) — 바뀐 것 없음" >&2; exit 1 ;;
+    paused)    echo "[중단] 쓰기 정지 중 실패(rc=$rc) — 쓰기 담당 그대로, 양쪽 RESUME" >&2
+               pgb A "RESUME app;" >/dev/null 2>&1 || true; pgb B "RESUME app;" >/dev/null 2>&1 || true; exit 1 ;;
+    switching) echo "[중단] 전환 도중 실패(rc=$rc) — 부분 상태. PgBouncer 는 PAUSE 로 둔다. replication/k8s/README.md '부분 상태 복구'를 따른다" >&2; exit 2 ;;
+    *)         exit "$rc" ;;
+  esac
 }
