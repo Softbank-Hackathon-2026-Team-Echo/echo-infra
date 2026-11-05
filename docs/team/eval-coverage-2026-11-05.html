@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>본선 평가 요소 대비 구현 현황 — 11/5 10:45</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&family=Noto+Sans+KR:wght@400;500;600&family=Noto+Serif+KR&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --color-paper:#f5f5f5; --color-ink:#2d3142; --color-muted:#4f5d75; --color-accent:#bf4520;
+      --font-sans:'Geist','Noto Sans KR','Apple SD Gothic Neo',sans-serif; --font-serif:'Instrument Serif','Noto Serif KR',serif; --font-mono:'Geist Mono',ui-monospace,monospace; }
+    body { font-family: var(--font-sans); background: var(--color-paper); color: var(--color-ink); padding: 2rem 1.5rem; }
+    .frame { max-width: 1000px; }
+    .eyebrow { font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-muted); margin-bottom: 0.5rem; }
+    h1 { font-family: var(--font-serif); font-size: 1.9rem; font-weight: 400; line-height: 1.2; margin-bottom: 0.6rem; }
+    h2 { font-family: var(--font-serif); font-size: 1.45rem; font-weight: 400; margin: 2.2rem 0 0.6rem; padding-top: 1rem; border-top: 1px solid rgba(45,49,66,0.14); }
+    p.lead { font-size: 0.92rem; line-height: 1.75; color: var(--color-muted); max-width: 880px; margin-bottom: 1rem; }
+    .bg { background: #fff; border: 1px solid rgba(45,49,66,0.14); border-radius: 6px; padding: 0.7rem 1rem; font-size: 0.86rem; line-height: 1.7; max-width: 920px; margin: 0.4rem 0 0.8rem; }
+    .bg .tag { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.14em; color: var(--color-muted); display: block; margin-bottom: 0.25rem; }
+    dl { display: grid; grid-template-columns: 9rem 1fr; gap: 0.2rem 0.8rem; font-size: 0.84rem; line-height: 1.6; }
+    dt { font-weight: 600; } dd { color: var(--color-muted); }
+    .scroll { overflow-x: auto; margin: 0.4rem 0; }
+    svg.dg { width: 1000px; min-width: 1000px; display: block; }
+    table { border-collapse: collapse; font-size: 0.82rem; margin: 0.4rem 0 0.6rem; background: #fff; border: 1px solid rgba(45,49,66,0.14); max-width: 980px; }
+    th, td { text-align: left; padding: 0.42rem 0.65rem; border-bottom: 1px solid rgba(45,49,66,0.10); vertical-align: top; line-height: 1.55; }
+    th { font-weight: 600; background: rgba(45,49,66,0.04); }
+    td.rec, th.rec { background: rgba(191,69,32,0.06); }
+    code { font-family: var(--font-mono); font-size: 0.78em; background: rgba(45,49,66,0.06); padding: 0 0.25em; border-radius: 3px; }
+    .cards { display: grid; grid-template-columns: 1.15fr 1fr 0.95fr; gap: 0.6rem; max-width: 980px; margin: 0.5rem 0; }
+    .card { background: #fff; border: 1px solid rgba(45,49,66,0.14); border-radius: 6px; padding: 0.6rem 0.8rem; font-size: 0.8rem; line-height: 1.6; }
+    .card.rec { border-left: 3px solid var(--color-accent); }
+    .card b { display: block; margin-bottom: 0.15rem; }
+    .card .tag { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.12em; color: var(--color-muted); }
+    .callout { border-left: 3px solid var(--color-accent); background: rgba(191,69,32,0.05); padding: 0.6rem 0.95rem; font-size: 0.86rem; line-height: 1.7; max-width: 920px; margin-top: 0.5rem; }
+    .answer { border: 1px solid rgba(45,49,66,0.14); background: #fff; border-radius: 6px; padding: 0.75rem 0.95rem; font-size: 0.88rem; line-height: 1.8; max-width: 920px; margin-top: 1.2rem; }
+    .note { font-size: 0.76rem; color: var(--color-muted); margin-top: 0.3rem; line-height: 1.6; max-width: 920px; }
+    .ok { color: #2a6f3e; font-weight: 600; } .warn { color: var(--color-accent); font-weight: 600; }
+  </style>
+</head>
+<body>
+<div class="frame">
+  <p class="eyebrow">Team Echo · 본선 평가 요소 대비 · 11/5 10:45 KST · 운영 실측 기준</p>
+  <h1>심사표에 우리를 대 보면 — 이전은 진짜, 보안은 반, AI는 아직 그림</h1>
+  <p class="lead">심사위원이 보는 것은 관리 플랫폼이 <b>실제로 도는가</b>입니다. 그래서 "코드가 있나"가 아니라 <b>운영 서버(api.echoport.uk)에서 지금 되는가 / 화면이 진짜 서버에 붙어 있는가 / 증거(리허설·실행 기록)가 있는가</b> 세 축으로 쟀습니다. 운영 GET·저장소·이슈 90건·기록 파일을 서브 에이전트가 읽기 전용으로 모았고(원자료 <code>submission/eval-coverage-facts.md</code>), 점수 전망은 제 판단입니다.</p>
+
+  <div class="bg"><span class="tag">먼저 알아 둘 말</span>
+    <dl>
+      <dt>실제</dt><dd>운영 서버가 지금 그 일을 하고, 화면이 그 서버에 붙어 있음</dd>
+      <dt>부분</dt><dd>API·화면은 있지만 값이 비었거나(UNKNOWN) 일부 단계만 됨</dd>
+      <dt>목업</dt><dd>화면이 브라우저 안에서 지어낸 값으로 움직임(코드 플래그 <code>*_API_READY=false</code>). 발표 때 "목업"이라고 밝혀야 함</dd>
+      <dt>없음</dt><dd>서버·화면 어디에도 없음</dd>
+      <dt>UNKNOWN 칸</dt><dd>보안 매트릭스에서 "증거를 아직 못 모았다"는 칸. 안전하다/위험하다가 아니라 <i>모른다</i></dd>
+    </dl>
+  </div>
+
+  <h2>1. 한눈에 — 데모 필수 3 + 테마 3</h2>
+  <div class="scroll">
+  <svg class="dg" viewBox="0 0 1000 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="ec-title ec-desc">
+    <title id="ec-title">평가 항목별 구현 상태 격자</title>
+    <desc id="ec-desc">데모 필수 3개와 테마 3개를 운영 서버, 화면, 시연 증거 세 축으로 나눠 실제·부분·목업·없음을 표시한다.</desc>
+    <!-- column headers -->
+    <text x="300" y="34" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" letter-spacing="1.5" fill="#4f5d75">SERVER · 운영 서버</text>
+    <text x="540" y="34" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" letter-spacing="1.5" fill="#4f5d75">SCREEN · 화면 연결</text>
+    <text x="780" y="34" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" letter-spacing="1.5" fill="#4f5d75">EVIDENCE · 시연 증거</text>
+    <!-- row 1 ① 이전 -->
+    <text x="24" y="78" font-family="Geist, Noto Sans KR, sans-serif" font-size="12" font-weight="600" fill="#2d3142">① 가동 중 앱 이전</text>
+    <text x="24" y="94" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">demo required · 30pt</text>
+    <rect x="188" y="56" width="224" height="52" rx="6" fill="#e3e6ec" stroke="#2d3142" stroke-width="1"/>
+    <text x="300" y="78" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#2d3142">실제</text>
+    <text x="300" y="96" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">7 runs · real · 3 envs</text>
+    <rect x="428" y="56" width="224" height="52" rx="6" fill="#e3e6ec" stroke="#2d3142" stroke-width="1"/>
+    <text x="540" y="78" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#2d3142">실제</text>
+    <text x="540" y="96" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">live · result tab</text>
+    <rect x="668" y="56" width="224" height="52" rx="6" fill="#e3e6ec" stroke="#2d3142" stroke-width="1"/>
+    <text x="780" y="78" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#2d3142">실제</text>
+    <text x="780" y="96" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">cutover 5556ms · rb 7119ms</text>
+    <!-- row 2 ② 보안 -->
+    <text x="24" y="138" font-family="Geist, Noto Sans KR, sans-serif" font-size="12" font-weight="600" fill="#2d3142">② 보안·거버넌스 시각화</text>
+    <text x="24" y="154" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">demo required</text>
+    <rect x="188" y="116" width="224" height="52" rx="6" fill="#bf4520" stroke="#bf4520" stroke-width="1"/>
+    <text x="300" y="138" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#fff">부분 — 칸이 비어 있음</text>
+    <text x="300" y="156" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#fff">UNKNOWN 9/12 · gate off</text>
+    <rect x="428" y="116" width="224" height="52" rx="6" fill="#e3e6ec" stroke="#2d3142" stroke-width="1"/>
+    <text x="540" y="138" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#2d3142">실제</text>
+    <text x="540" y="156" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">matrix · findings · audit</text>
+    <rect x="668" y="116" width="224" height="52" rx="6" fill="#fff" stroke="#2d3142" stroke-width="1"/>
+    <text x="780" y="138" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#2d3142">부분</text>
+    <text x="780" y="156" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">4 exceptions · compare=mock</text>
+    <!-- row 3 ③ AI -->
+    <text x="24" y="198" font-family="Geist, Noto Sans KR, sans-serif" font-size="12" font-weight="600" fill="#2d3142">③ AI 샌드박스 점검·수정</text>
+    <text x="24" y="214" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">demo required · +10pt AI</text>
+    <rect x="188" y="176" width="224" height="52" rx="6" fill="#bf4520" stroke="#bf4520" stroke-width="1"/>
+    <text x="300" y="198" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#fff">점검만 · 수정 없음</text>
+    <text x="300" y="216" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#fff">rules only · model=null</text>
+    <rect x="428" y="176" width="224" height="52" rx="6" fill="#fff" stroke="#2d3142" stroke-width="1" stroke-dasharray="5,4"/>
+    <text x="540" y="198" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#2d3142">목업</text>
+    <text x="540" y="216" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">PRECHECK_API_READY=false</text>
+    <rect x="668" y="176" width="224" height="52" rx="6" fill="#fff" stroke="#2d3142" stroke-width="1"/>
+    <text x="780" y="198" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#2d3142">부분</text>
+    <text x="780" y="216" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">1 run on VM · PoC w/ model</text>
+    <!-- row 4 온프레 재현 -->
+    <text x="24" y="258" font-family="Geist, Noto Sans KR, sans-serif" font-size="12" font-weight="600" fill="#2d3142">테마 · 온프레 기능 재현</text>
+    <text x="24" y="274" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">IAM secret audit mon backup</text>
+    <rect x="188" y="236" width="224" height="52" rx="6" fill="#fff" stroke="#2d3142" stroke-width="1"/>
+    <text x="300" y="258" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#2d3142">부분</text>
+    <text x="300" y="276" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">IAM·secret·audit ok · backup 0</text>
+    <rect x="428" y="236" width="224" height="52" rx="6" fill="#fff" stroke="#2d3142" stroke-width="1"/>
+    <text x="540" y="258" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#2d3142">부분</text>
+    <text x="540" y="276" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">audit page · no monitoring</text>
+    <rect x="668" y="236" width="224" height="52" rx="6" fill="#fff" stroke="#2d3142" stroke-width="1"/>
+    <text x="780" y="258" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#2d3142">부분</text>
+    <text x="780" y="276" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">29 audit paths · PITR spec only</text>
+    <!-- row 5 레지던시 -->
+    <text x="24" y="318" font-family="Geist, Noto Sans KR, sans-serif" font-size="12" font-weight="600" fill="#2d3142">테마 · 데이터 레지던시</text>
+    <text x="24" y="334" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">optional theme</text>
+    <rect x="188" y="296" width="224" height="52" rx="6" fill="#2d3142" stroke="#2d3142" stroke-width="1"/>
+    <text x="300" y="318" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#fff">없음</text>
+    <text x="300" y="336" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#fff">0 files</text>
+    <rect x="428" y="296" width="224" height="52" rx="6" fill="#fff" stroke="#2d3142" stroke-width="1" stroke-dasharray="5,4"/>
+    <text x="540" y="318" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#2d3142">목업</text>
+    <text x="540" y="336" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">evacuation score const</text>
+    <rect x="668" y="296" width="224" height="52" rx="6" fill="#2d3142" stroke="#2d3142" stroke-width="1"/>
+    <text x="780" y="318" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#fff">없음</text>
+    <!-- row 6 비용·OTel -->
+    <text x="24" y="378" font-family="Geist, Noto Sans KR, sans-serif" font-size="12" font-weight="600" fill="#2d3142">테마 · 비용·OTel 모니터링</text>
+    <text x="24" y="394" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">optional theme</text>
+    <rect x="188" y="356" width="224" height="52" rx="6" fill="#fff" stroke="#2d3142" stroke-width="1"/>
+    <text x="300" y="378" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#2d3142">부분</text>
+    <text x="300" y="396" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">budget.tf · entry prometheus</text>
+    <rect x="428" y="356" width="224" height="52" rx="6" fill="#fff" stroke="#2d3142" stroke-width="1" stroke-dasharray="5,4"/>
+    <text x="540" y="378" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#2d3142">목업</text>
+    <text x="540" y="396" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#4f5d75">cost const</text>
+    <rect x="668" y="356" width="224" height="52" rx="6" fill="#2d3142" stroke="#2d3142" stroke-width="1"/>
+    <text x="780" y="378" text-anchor="middle" font-family="Geist, Noto Sans KR, sans-serif" font-size="13" font-weight="600" fill="#fff">없음</text>
+    <text x="780" y="396" text-anchor="middle" font-family="Geist Mono, monospace" font-size="9" fill="#fff">no OTel collector</text>
+  </svg>
+  </div>
+  <p class="note">범례: 회색 채움 = 실제 · 흰색 = 부분 · 점선 = 목업(브라우저 값) · 진한 색 = 없음 · 주황 = 점수에 가장 크게 걸리는 두 칸. 테마 "무중단 이전·보안·AI×샌드박스"는 데모 필수 ①②③과 같아 행을 합쳤습니다.</p>
+
+  <h2>2. 배점 5항목 — 지금 상태로 받을 점수 전망(제 판단)</h2>
+  <table>
+    <tr><th>항목(배점)</th><th>심사위원이 볼 것</th><th>우리 증거</th><th class="rec">전망</th><th>깎이는 이유</th></tr>
+    <tr><td><b>완성도·데모</b> (30)</td><td>그 자리에서 실제 동작</td><td>이전 7건 실제, 배포 20건 실제, 컷오버 결과 화면 연결, 시연 앱 3환경 200</td><td class="rec"><b>18~22</b></td><td>③ AI 화면 전체 목업, 보안 비교 목업, 재난·대피 목업, 대본 리허설 기록 0회, "API 불통 대응 미정"</td></tr>
+    <tr><td><b>클라우드 활용·운영 설계</b> (30)</td><td>추상화·무중단·롤백·권한</td><td>환경 3종 어댑터, Envoy 가중치 10→50→100 + 건수 판정, 논리 복제+PgBouncer, 롤백 7119ms, 역할 3단+에이전트 토큰 GET만, 감사 29경로, 장기 키 0, 재구축 13분, CVE 대응</td><td class="rec"><b>22~26</b></td><td>컷오버가 계획과 분리된 수동 스크립트, 온프레는 진입점 밖(도착 불가), 백업 PITR 없음</td></tr>
+    <tr><td><b>팀 개발·문서화</b> (20)</td><td>대안·논의 과정</td><td>병합 PR 121, 결정 로그 D-094, ADR 4+노션 25행, SPEC 29, 허들 5, 리허설 기록 5종, docs/team 원문</td><td class="rec"><b>15~18</b></td><td>저장소 5개 비공개(링크 못 열면 0), 아키텍처 그림 미완(infra#34)</td></tr>
+    <tr><td><b>독창성</b> (10)</td><td>환경 범위·UX</td><td>AWS·GCP·온프레 k3s+Tunnel 3종, 지진 재난 시나리오·지구본·좌표, 한·일 UI</td><td class="rec"><b>6~8</b></td><td>재난·대피가 목업이면 "그림"으로 보임 → API 9 붙으면 +</td></tr>
+    <tr><td><b>AI 활용</b> (10)</td><td>샌드박스 점검·<b>코드 변경</b></td><td>격리 VM·네트워크 0 작업 공간, 러너 계약·API, 규칙 점검 1회 실제, 모델 PoC(print(1))</td><td class="rec"><b>3~5</b></td><td>운영에서 모델 호출 0, 패치 생성·검증·승인·반영 0 (ai#5·#6 open), AI 이슈 8건 전부 open</td></tr>
+    <tr><td colspan="3"><b>합계</b></td><td class="rec"><b>64~79 / 100</b></td><td>아래 3개를 메우면 윗구간</td></tr>
+  </table>
+
+  <h2>3. 점수에 걸리는 빈칸 — 큰 것부터</h2>
+  <table>
+    <tr><th>#</th><th>빈칸</th><th>걸린 점수</th><th>지금 상태</th><th>11/7까지 메우는 최소 작업</th><th>누구</th></tr>
+    <tr><td>1</td><td><b>AI가 실제로 점검하고 수정안을 내는 장면</b></td><td>AI 10 + 데모 30의 ③</td><td>규칙 점검 1회(모델 없음), 패치 0, 화면 목업</td><td>러프 러너에 모델 1회 호출 얹어 <code>aiReviewed=true</code> + 설정 차이에 대한 <b>패치 제안 1건</b>(적용은 안 해도 됨, "사람 승인 전"으로 밝힘) → 프론트 <code>PRECHECK_API_READY=true</code></td><td>형래(모델·패치) · 지민(러너 API 패치 칸은 이미 있음) · 도영(플래그)</td></tr>
+    <tr><td>2</td><td><b>보안 매트릭스 UNKNOWN 9/12</b></td><td>데모 30의 ② + 설계 30</td><td>증거 수집기(sec-2) 일부만, C-IAM-2·C-AUD-1·C-TLS-1 비어 있음</td><td>TLS 접속 시험·감사 존재·IAM 역할 증거 3종을 실제 수집해 PASS/FAIL로 채움 → 게이트 ON 리허설(결정 D)</td><td>형래(sec-2) · 지민(게이트 ON)</td></tr>
+    <tr><td>3</td><td><b>재난 버튼 → 자동 이전(API 9)</b></td><td>독창성 10 + 데모</td><td>PR 작성 중(M1 재검증 단계), 프론트는 시뮬레이션</td><td>PR 병합·배포 → <code>DISASTER_API_READY=true</code></td><td>지민(진행 중) · 도영</td></tr>
+    <tr><td>4</td><td>대본 리허설 0회 기록</td><td>데모 30</td><td>demo-script 장면 7, 리허설 칸 비어 있음</td><td>오늘 낮 1회(게이트 ON 겸) + 기록</td><td>전원</td></tr>
+    <tr><td>5</td><td>백업 PITR(온프레 재현 테마)</td><td>설계 30 일부</td><td>SPEC Draft만</td><td>base backup 1회 + WAL 보관 증거 1장, 안 되면 문서에 "미완"</td><td>동옥</td></tr>
+    <tr><td>6</td><td>저장소 공개</td><td>문서 20 전부</td><td>5개 비공개</td><td>11/7 10:00 직전 공개(결정 "그때 가서")</td><td>지민</td></tr>
+  </table>
+
+  <div class="cards">
+    <div class="card rec"><span class="tag">강점 · 그대로 밀 것</span><b>이전 엔진</b>세 환경이 실제로 돌고, 이전·컷오버·롤백 숫자가 운영 API에 남습니다. 발표 3분 중 2분은 여기.</div>
+    <div class="card"><span class="tag">솔직하게 밝힐 것</span><b>목업 4개</b>재난·대피·실시간 이벤트·보안 비교. "목업은 목업이라고" 규칙 — 대본에 이미 표시됨(#62 수정 요청에 포함).</div>
+    <div class="card"><span class="tag">말 조심</span><b>"AI가 점검했다"</b>지금은 <code>aiReviewed=false</code>. 모델이 붙기 전엔 "규칙 비교"라고만.</div>
+  </div>
+
+  <div class="callout"><b>한 줄 결론</b> — 60점짜리 "실제 동작 + 운영 설계"는 이전 엔진으로 거의 채웠고, 남은 점수는 <b>AI(빈칸 1)</b>와 <b>보안 증거(빈칸 2)</b>에 몰려 있습니다. 둘 다 형래님 영역이라, 오늘 형래님 시간을 거기에만 쓰게 해 드리는 게 제일 큰 점수 작업입니다. 지민님 몫은 API 9 병합·게이트 ON 리허설·저장소 공개 시점입니다.</div>
+
+  <div class="answer"><b>다음 행동 후보</b> — ① 형래님께 "빈칸 1·2 우선" 요청 글(유하게, 초안 드림) ② 오늘 낮 리허설 시각 정해 게이트 ON 시도 ③ 도영님께 플래그 2개(PRECHECK·DISASTER) 켤 조건 안내 ④ 동옥님께 PITR 증거 1장 요청. 번호로 답해 주세요(예: <code>①②③④</code>).</div>
+  <p class="note">근거: 운영 GET(환경·서비스·계획·매트릭스·예외·사전 점검·감사·설정), openapi 경로 50, 이슈 90(closed 45/open 45), 병합 PR 121, `rehearsal-2026-11-05-night/after.md`, `api-runner/first-run-2026-11-05.md`. 점수 전망은 배점표와 증거를 대 본 제 추정이며 심사 기준 세부는 비공개입니다. 미검증: 화면을 브라우저로 직접 열지 않음(코드 플래그 기준), Pages 배포 커밋, 게이트 ON 동작, 진입점 Prometheus 가동 여부. facts의 주의: 서브 에이전트 조사 시점(10:40)에 echo-was 열린 PR 0 — API 9·시험 속도 PR은 그 뒤 올라옵니다.</p>
+</div>
+</body>
+</html>
