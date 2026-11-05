@@ -1,0 +1,4 @@
+# Prometheus web 설정: 인증 꺼짐 (entrypoint_prometheus_remote_write = false 일 때, 지금까지와 같음).
+# 켜면 startup 스크립트가 /opt/entrypoint/prometheus-web.yml(bcrypt 해시)을 만들고 .env 의 PROMETHEUS_WEB_CONFIG 가 그 파일을 가리킨다.
+# 빈 설정은 TLS·인증 없음이다.
+{}

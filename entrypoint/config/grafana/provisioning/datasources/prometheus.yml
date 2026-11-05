@@ -7,3 +7,9 @@ datasources:
     url: http://prometheus:9090
     isDefault: true
     editable: false
+    # 인프라 9: Prometheus 가 basic auth(web.yml)를 켜면 이 계정으로 읽는다. 비밀번호는 컨테이너 환경 변수에서만 온다.
+    # 인증이 꺼진 Prometheus 는 Authorization 헤더를 무시하므로 꺼진 상태에서도 그대로 동작한다.
+    basicAuth: true
+    basicAuthUser: echo-otel
+    secureJsonData:
+      basicAuthPassword: $PROMETHEUS_BASIC_AUTH_PASSWORD

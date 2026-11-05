@@ -144,7 +144,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 | 진입점 단일 장애점 | VM 1대 → 11/4 보조 VM(존 b) 적용, Cloudflare 두 번째 A 레코드·측정 대기 | 두 곳 + DNS 페일오버 PoC(5.1), 규모가 커지면 관리형 LB 뒤 Envoy 여러 대 |
 | 같은 계정에 두 번째 AWS 환경 | OIDC 공급자(계정당 1개)·ECR 이름(`echo/app`)·닻 ALB 이름이 환경 무관 | 리허설은 `-target`·`project` 변수로 우회. 후속: OIDC data 참조 옵션, ECR·ALB 이름을 환경에서 파생 |
 | 첫 이전 때 도착 환경 p95 `null` | Prometheus `usedonly` 수집 | 판정엔 영향 없음(건수 기반). 수집 옵션 조정 또는 사전 워밍 |
-| 클러스터 공통 OTel 수집기 | 진입점 Prometheus 만 | 인프라 9, DR 적용 뒤 |
+| 클러스터 공통 OTel 수집기 | 진입점 Prometheus 만 (11/5 매니페스트·진입점 스위치 PR, 운영 적용 전) | 인프라 9 — `cluster-addons/otel-collector`, 스위치 `entrypoint_prometheus_remote_write` |
 | 온프레가 진입점 업스트림에 아직 없음 | aws·gcp 2개 | `UPSTREAMS` 한 줄(인프라 13 선행) |
 | 쓰기 정지 8초(목표 1초) | 창 안에서 역방향 구독 생성 + kubectl exec 왕복 6~7회 | 역방향 구독을 미리 `enabled=false` 로 두고 창 안에서 ENABLE 만, repoint 병렬, 클러스터 안(Job)에서 실행 |
 | 컷오버 실행이 이전 계획과 분리 | 사람이 `cutover.sh` | echo-was 는 복제 지연만 확인(DATA_SYNC_CHECK). 비율 100% 뒤 컷오버 호출은 후속 |

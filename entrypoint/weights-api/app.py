@@ -19,11 +19,14 @@ Envoy 가 읽는 파일 기반 xDS(/etc/envoy/dynamic/clusters.yaml·routes.yaml
   DYNAMIC_DIR      Envoy 와 공유하는 디렉터리 (기본 /etc/envoy/dynamic)
   ENVOY_ADMIN      Envoy admin 주소 (기본 http://envoy:9901)
   PROMETHEUS_URL   Prometheus 주소 (기본 http://prometheus:9090)
+  PROMETHEUS_BASIC_AUTH  "사용자:비밀번호" — Prometheus 가 basic auth(web.yml)를 켰을 때 쿼리에 붙인다 (인프라 9).
+                   비어 있으면 붙이지 않는다. 인증이 꺼진 Prometheus 는 이 헤더를 무시한다
   HC_PATH          업스트림 헬스체크 경로 (기본 /healthz)
   SYNC_FROM        보조 진입점일 때 주 진입점의 가중치 API 주소 (예 http://10.60.0.6:8080). 2초마다 GET /weights 로 맞춘다.
                    주가 죽으면 마지막 값을 유지한다 (인프라 5.1 진입점 두 곳 PoC). 비어 있으면 동기화 없음
 """
 
+import base64
 import json
 import os
 import re
@@ -41,6 +44,8 @@ STATE_PATH = os.path.join(STATE_DIR, "weights.json")
 TOKEN = os.environ.get("WEIGHTS_TOKEN", "")
 ENVOY_ADMIN = os.environ.get("ENVOY_ADMIN", "http://envoy:9901").rstrip("/")
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090").rstrip("/")
+_PROM_AUTH = os.environ.get("PROMETHEUS_BASIC_AUTH", "")
+PROM_HEADERS = {"Authorization": "Basic " + base64.b64encode(_PROM_AUTH.encode()).decode()} if _PROM_AUTH else {}
 HC_PATH = os.environ.get("HC_PATH", "/healthz")
 SYNC_FROM = os.environ.get("SYNC_FROM", "").rstrip("/")
 SYNC_INTERVAL = float(os.environ.get("SYNC_INTERVAL", "2"))
@@ -305,7 +310,7 @@ def prom_query(expr):
     """즉시 쿼리 결과를 {라벨값: float} 로. 실패하면 None."""
     url = f"{PROMETHEUS_URL}/api/v1/query?" + urllib.parse.urlencode({"query": expr})
     try:
-        with urllib.request.urlopen(url, timeout=3) as r:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=PROM_HEADERS), timeout=3) as r:
             data = json.load(r)
     except (urllib.error.URLError, json.JSONDecodeError, OSError):
         return None

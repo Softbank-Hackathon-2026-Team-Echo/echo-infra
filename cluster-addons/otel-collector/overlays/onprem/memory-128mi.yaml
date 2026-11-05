@@ -1,0 +1,17 @@
+# 온프레 t3.small: 수집기 메모리 상한 128Mi (memory_limiter 100MiB·GOMEMLIMIT 90MiB 가 그 안에서 먼저 막는다).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: echo-otel
+spec:
+  template:
+    spec:
+      containers:
+        - name: otelcol
+          resources:
+            requests:
+              cpu: 25m
+              memory: 48Mi
+            limits:
+              memory: 128Mi

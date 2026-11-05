@@ -52,5 +52,8 @@ docs/PR.md
 
 # 고정 진입점 로컬 값 (토큰·비밀번호)
 entrypoint/.env
+# 인프라 9: 로컬에서 만든 Prometheus basic auth 파일(bcrypt 해시). VM 은 /opt/entrypoint 에 만든다
+entrypoint/prometheus-web.yml
+cluster-addons/otel-collector/local-test/.out/
 __pycache__/
 *.pyc

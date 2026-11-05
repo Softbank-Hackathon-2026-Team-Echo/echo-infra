@@ -75,6 +75,8 @@ docker compose down             # -v 를 붙이면 가중치·측정 데이터�
 | p95 지연 | Envoy `envoy_cluster_upstream_rq_time` 히스토그램 — 라우트의 **경로 클러스터**(`aws_then_gcp`)에 기록된다. 첫 환경이 건강하면 그 환경의 지연이다 |
 | 진입점 전체 요청·5xx | `envoy_http_downstream_rq_*` |
 
+| 세 환경 한 그래프 (인프라 9) | 클러스터 OTel 수집기가 remote write 로 보낸 앱 지표 `http_requests_total`·`http_request_duration_seconds` 를 `cloud_provider` 별로(요청 수·5xx 비율·p95). 헬스체크 경로는 뺀다. Envoy 숫자와 출처가 다르다 — [cluster-addons/otel-collector](../cluster-addons/otel-collector/README.md) |
+
 Prometheus 는 5초마다 긁고 7일 보관. 접근 로그는 JSON 으로 stdout (`docker compose logs envoy`): 요청마다 `upstream_cluster`·`upstream_host`·`duration_ms`·`flags`.
 
 ## GCP VM (Terraform)
@@ -85,6 +87,20 @@ Prometheus 는 5초마다 긁고 7일 보관. 접근 로그는 JSON 으로 stdou
 - 토큰·Grafana 비밀번호: VM 이 첫 부팅 때 만들어 `echo-dev-entry-weights-token`·`echo-dev-entry-grafana-admin` 에 넣는다. state·레포에 없다.
 - SSH: `gcloud compute ssh echo-dev-entry --tunnel-through-iap` (공개 22 없음).
 - Grafana 는 익명 Viewer 허용(3000 은 허용 CIDR 에서만), 편집은 admin.
+
+## remote write 수신 (인프라 9 OTel 수집기)
+
+클러스터 OTel 수집기가 `:9090/api/v1/write` 로 보낸다. Terraform 스위치 `entrypoint_prometheus_remote_write`(기본 `false` = 지금과 같음)로 켠다.
+
+| 스위치 | Prometheus | 읽는 쪽 |
+|---|---|---|
+| `false` | `--no-web.enable-remote-write-receiver`, web 설정 `config/prometheus-web-off.yml`(인증 없음) | weights-api·Grafana 가 인증 없이 읽는다 |
+| `true` | `--web.enable-remote-write-receiver` + `--web.config.file`(basic auth 사용자 `echo-otel`). **쿼리·UI 도 인증이 필요하다** | weights-api(`PROMETHEUS_BASIC_AUTH`)·Grafana(데이터소스 `basicAuth`)가 같은 계정으로 읽는다 |
+
+- 비밀번호: VM 이 처음 켤 때 만들어 Secret Manager `echo-dev-entry-prometheus-remote-write` 에 넣는다(보조 b 는 그 값을 읽는다 → a 를 먼저 돌린다). `/opt/entrypoint/prometheus-web.yml` 에는 bcrypt 해시만(`scripts/render-prometheus-web.sh`). 저장소에는 원문·해시 모두 없다.
+- 방화벽: EKS·GKE NAT 는 `entrypoint_admin_cidrs` 로 이미 9090 이 열려 있다. 그 밖(온프레 EC2 공인 IP)은 `entrypoint_remote_write_cidrs` 에 넣으면 9090 만 연다.
+- 바꾼 뒤 `sudo google_metadata_script_runner startup` 을 돌리면 **weights-api·Prometheus·Grafana 컨테이너가 다시 만들어진다**(로컬 측정: Prometheus 약 9초 수집·조회 공백, `/summary` 는 그동안 `prometheus: unreachable`). Envoy 는 다시 만들어지지 않는다(트래픽 끊김 0, 로컬 측정). 9090 은 평문 HTTP 라 비밀번호가 NAT~진입점 구간에 평문으로 지난다(시연 기간 한정).
+- 로컬: `.env.example` 의 인프라 9 주석대로 `printf '%s' "$PW" | bash scripts/render-prometheus-web.sh ./prometheus-web.yml` 뒤 `.env` 에 네 줄.
 
 ## Cloudflare 에 붙일 때
 

@@ -1,0 +1,23 @@
+# 온프레 k3s (AWS 서울 EC2 echo-onprem-demo, t3.small, 가용 메모리 약 674MB). 들어오는 포트 0 → 밀어 보내기만 한다.
+# 나가는 주소는 EC2 공인 IP(3.36.77.175) → 진입점 방화벽 entrypoint_remote_write_cidrs 에 /32 를 넣어야 닿는다.
+# cloud.provider=onprem 은 OTel 표준 값이 아니다(시연에서 온프레로 간주하는 기기). 실체 위치는 cloud.region 에 남긴다.
+#   sudo k3s kubectl apply -k cluster-addons/otel-collector/overlays/onprem
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+configMapGenerator:
+  - name: otel-collector-env
+    namespace: echo-otel
+    behavior: merge
+    literals:
+      - CLOUD_PROVIDER=onprem
+      - CLOUD_REGION=ap-northeast-2
+      - K8S_CLUSTER_NAME=echo-onprem-demo
+      - ENTRY_A_ENDPOINT=http://34.158.202.103:9090/api/v1/write
+      - ENTRY_B_ENDPOINT=http://8.230.16.205:9090/api/v1/write
+      - MEMORY_LIMIT_MIB=100
+      - MEMORY_SPIKE_MIB=25
+      - GOMEMLIMIT=90MiB
+patches:
+  - path: memory-128mi.yaml

@@ -174,6 +174,23 @@ variable "entrypoint_admin_cidrs" {
   default     = []
 }
 
+variable "entrypoint_prometheus_remote_write" {
+  description = "진입점 Prometheus 의 remote write 수신(--web.enable-remote-write-receiver) + basic auth 를 켠다 (인프라 9 OTel 수집기). false 면 지금과 같다(수신 꺼짐·인증 없음)"
+  type        = bool
+  default     = false
+}
+
+variable "entrypoint_remote_write_cidrs" {
+  description = "Prometheus(9090) remote write 만 열어 줄 CIDR (예 온프레 EC2 공인 IP/32). admin CIDR 과 달리 8080·3000 은 열지 않는다. 비어 있으면 규칙을 만들지 않는다"
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for c in var.entrypoint_remote_write_cidrs : can(cidrhost(c, 0)) && c != "0.0.0.0/0"])
+    error_message = "CIDR 형식이어야 하고 0.0.0.0/0 은 안 된다."
+  }
+}
+
 # 관제탑 (echo-was)
 
 variable "control_plane_domain" {
