@@ -25,6 +25,8 @@ data:
     pool_mode = transaction
     max_client_conn = 500
     default_pool_size = 25
+    # 컷오버 뒤 백엔드가 B(인터넷 LB)로 바뀌므로 서버 쪽 연결도 TLS 를 강제한다(gcp-seoul 과 같음, #32)
+    server_tls_sslmode = require
 ---
 apiVersion: v1
 kind: Service
