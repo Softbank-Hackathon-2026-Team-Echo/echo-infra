@@ -114,6 +114,17 @@ variable "executor_google_service_account_id" {
   }
 }
 
+variable "cutover_google_service_account_id" {
+  description = "컷오버 Job GSA 의 uniqueId (GCP 루트 출력값 cutover_service_account_unique_id). 비우면 cutover 역할·access entry 를 만들지 않는다"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.cutover_google_service_account_id == "" || can(regex("^[0-9]{10,}$", var.cutover_google_service_account_id))
+    error_message = "GSA 의 uniqueId(숫자)를 넣는다. 이메일이 아니다."
+  }
+}
+
 variable "apps_domain" {
   description = "AWS 환경별 앱 주소의 하위 도메인 (echo-was aws 환경 config.ingressDomain). 인증서는 *.<이 값>"
   type        = string

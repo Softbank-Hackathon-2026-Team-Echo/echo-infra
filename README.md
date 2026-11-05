@@ -101,6 +101,7 @@ terraform -chdir=terraform/bootstrap/aws plan
 | [specs/infra-7-postgres-logical-replication-cutover.md](specs/infra-7-postgres-logical-replication-cutover.md)·[infra-8-rollback-reverse-replication.md](specs/infra-8-rollback-reverse-replication.md) | 데이터 이전(컷오버)·롤백 SPEC |
 | [specs/infra-12.1-cutover-idempotent.md](specs/infra-12.1-cutover-idempotent.md) | 컷오버·롤백 스크립트 멱등화·계획 id (로컬 시험 `replication/k8s/scripts/tests/run.sh`) |
 | [specs/infra-12.3-db-promote.md](specs/infra-12.3-db-promote.md) | 원본 DB 장애 시 B 승격·A 다시 맞추기 (`promote.sh`·`resync-a.sh`) |
+| [specs/infra-12.2-cutover-job.md](specs/infra-12.2-cutover-job.md) · [replication/cutover-job/README.md](replication/cutover-job/README.md) | 컷오버 Job: 이미지·전용 신원·RBAC·VAP (서울 GKE `echo-ops`) |
 | [replication/README.md](replication/README.md) · [replication/k8s/aws-tokyo/README.md](replication/k8s/aws-tokyo/README.md) | 이전 엔진 PoC·검증값 / 도쿄 A 실배포 매니페스트 |
 | [docs/manual-resources.md](docs/manual-resources.md) | 손으로 만든 자원(Cloudflare·cert-manager·실행기 비밀)과 다시 만드는 방법 |
 | [docs/references.md](docs/references.md) | 참고·가져온 코드 기록 |

@@ -120,8 +120,9 @@ resource "aws_iam_role_policy" "ci_build_ecr" {
 # "accounts.google.com:aud"). 공급자 client_id_list 도 azp 와 맞아야 한다. 맞지 않으면 STS 는
 # 400 InvalidIdentityToken("could not be validated")을 낸다(11/4 운영 실제 실행기 첫 배포에서 확인).
 resource "aws_iam_openid_connect_provider" "google" {
-  url            = "https://accounts.google.com"
-  client_id_list = ["sts.amazonaws.com", var.executor_google_service_account_id]
+  url = "https://accounts.google.com"
+  # 컷오버 GSA(cutover.tf)도 같은 공급자를 쓴다. 비어 있으면 넣지 않는다.
+  client_id_list = compact(["sts.amazonaws.com", var.executor_google_service_account_id, var.cutover_google_service_account_id])
 }
 
 resource "aws_iam_role" "executor" {

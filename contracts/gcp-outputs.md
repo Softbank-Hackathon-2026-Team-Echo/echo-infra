@@ -17,6 +17,8 @@
 | `ci_workload_identity_provider` | GitHub Actions `google-github-actions/auth` | `projects/…/providers/github` | 코드 (11/2) |
 | `ci_build_service_account` | **빌드 실행기**: echo-was 저장소 GitHub Actions(main)가 `google-github-actions/auth` 로 가장해 AR push | `echo-dev-ci-build@…` | 코드 (11/3) |
 | `control_plane_service_account_unique_id` | AWS 루트 변수 `executor_google_service_account_id` (배포 실행기의 EKS 접근) | `1003830…` | 코드 (11/3) |
+| `cutover_service_account` | **컷오버 Job** KSA `echo-ops/echo-cutover` 의 `iam.gke.io/gcp-service-account` (replication/cutover-job/manifests/echo-ops.yaml `__CUTOVER_GSA__`) | `echo-dev-cutover@…` | 코드 (11/5) |
+| `cutover_service_account_unique_id` | AWS 루트 변수 `cutover_google_service_account_id` (컷오버 역할 신뢰) | `1004…` | 코드 (11/5) |
 
 ## 고정 진입점 (Envoy VM, `entrypoint.tf`)
 

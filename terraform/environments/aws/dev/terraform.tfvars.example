@@ -15,3 +15,6 @@ budget_notification_emails = ["<팀 메일>"]
 # ALB 컨트롤러 권한 이름 (lbc.tf). 기존 dev 는 "echo-was-lbc"/"echo-was-lbc-policy", 새 환경은 비워 둔다
 # lbc_role_name   = ""
 # lbc_policy_name = ""
+
+# 선택. GCP 루트 출력값 cutover_service_account_unique_id (컷오버 Job GSA 의 숫자 ID). 비우면 cutover 역할을 만들지 않는다
+# cutover_google_service_account_id = "<uniqueId>"

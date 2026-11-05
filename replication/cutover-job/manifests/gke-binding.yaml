@@ -1,0 +1,12 @@
+# B(서울 GKE): 컷오버 Job 의 KSA 와 echo-data Role 을 잇는다. echo-data-rbac.yaml 과 echo-ops.yaml 뒤에 적용한다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: echo-cutover-gke
+  namespace: echo-data
+  labels: { app.kubernetes.io/part-of: echo-cutover }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: echo-cutover }
+subjects:
+  - kind: ServiceAccount
+    name: echo-cutover
+    namespace: echo-ops
