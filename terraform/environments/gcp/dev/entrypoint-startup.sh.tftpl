@@ -60,15 +60,38 @@ if [ ! -f "$ROOT/.env.secrets" ]; then
   [ -z "$(read_secret_latest "${secret_grafana}")" ] && add_secret_version "${secret_grafana}" "$GRAFANA_ADMIN_PASSWORD"
 fi
 
+# 3-b. Prometheus remote write 수신 + basic auth (인프라 9). 이미 켜진 VM 은 .env.secrets 가 있어 위 블록을 건너뛰므로 따로 맞춘다.
+# 비밀번호 원문은 Secret Manager·.env(0600)에만, Prometheus 설정 파일에는 bcrypt 해시만 쓴다.
+PROM_ENV="PROMETHEUS_REMOTE_WRITE_FLAG=no-web.enable-remote-write-receiver"
+if [ "${prom_rw_enabled}" = "true" ]; then
+  if ! grep -q '^PROMETHEUS_RW_PASSWORD=' "$ROOT/.env.secrets"; then
+    PROMETHEUS_RW_PASSWORD=$(read_secret_latest "${secret_prom_rw}")
+    if [ -n "$PROMETHEUS_RW_PASSWORD" ]; then log "remote write 비밀번호: Secret Manager 의 기존 값 사용"; else
+      log "remote write 비밀번호 생성"; PROMETHEUS_RW_PASSWORD=$(openssl rand -hex 24)
+      add_secret_version "${secret_prom_rw}" "$PROMETHEUS_RW_PASSWORD"
+    fi
+    umask 077
+    printf 'PROMETHEUS_RW_PASSWORD=%s\n' "$PROMETHEUS_RW_PASSWORD" >> "$ROOT/.env.secrets"
+    umask 022
+  fi
+  # bcrypt 해시용 htpasswd. 패키지 목록이 오래됐을 수 있어 update 를 먼저 한다(처음 켤 때 한 번만)
+  command -v htpasswd >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq apache2-utils >/dev/null; }
+  PROMETHEUS_RW_PASSWORD=$(sed -n 's/^PROMETHEUS_RW_PASSWORD=//p' "$ROOT/.env.secrets")
+  printf '%s' "$PROMETHEUS_RW_PASSWORD" | bash "$ROOT/scripts/render-prometheus-web.sh" "$ROOT/prometheus-web.yml" echo-otel
+  PROM_ENV=$(printf 'PROMETHEUS_REMOTE_WRITE_FLAG=web.enable-remote-write-receiver\nPROMETHEUS_WEB_CONFIG=./prometheus-web.yml\nPROMETHEUS_BASIC_AUTH=echo-otel:%s\nPROMETHEUS_BASIC_AUTH_PASSWORD=%s' "$PROMETHEUS_RW_PASSWORD" "$PROMETHEUS_RW_PASSWORD")
+  log "Prometheus remote write 수신 켬 (basic auth 사용자 echo-otel)"
+fi
+
 # 4. .env = 비밀값 + Terraform 이 정한 값 (매 부팅 다시 쓴다)
 umask 077
 {
-  cat "$ROOT/.env.secrets"
+  grep -v '^PROMETHEUS_RW_PASSWORD=' "$ROOT/.env.secrets"
   cat <<ECHO_ENV_EOF
 UPSTREAMS=${upstreams}
 DEFAULT_WEIGHTS=${default_weights}
 SYNC_FROM=${sync_from}
 ECHO_ENV_EOF
+  printf '%s\n' "$PROM_ENV"
 } > "$ROOT/.env"
 umask 022
 

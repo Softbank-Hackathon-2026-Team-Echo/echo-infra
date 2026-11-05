@@ -1,0 +1,17 @@
+# GKE 서울 (echo-dev-gke). 같은 VPC 라 진입점 a·b 의 내부 IP 로 보낸다(방화벽 echo-dev-internal 이 파드 대역 10.61.0.0/16 허용).
+# GKE 관리형 Prometheus(GMP)는 건드리지 않는다(PodMonitoring 을 만들지 않는다).
+#   kubectl --context gke_team-echo-final_asia-northeast3-a_echo-dev-gke apply -k cluster-addons/otel-collector/overlays/gcp
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+configMapGenerator:
+  - name: otel-collector-env
+    namespace: echo-otel
+    behavior: merge
+    literals:
+      - CLOUD_PROVIDER=gcp
+      - CLOUD_REGION=asia-northeast3
+      - K8S_CLUSTER_NAME=echo-dev-gke
+      - ENTRY_A_ENDPOINT=http://10.60.0.6:9090/api/v1/write
+      - ENTRY_B_ENDPOINT=http://10.60.0.9:9090/api/v1/write

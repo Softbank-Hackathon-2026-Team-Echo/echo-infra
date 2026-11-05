@@ -18,6 +18,8 @@ services:
       UPSTREAMS: ${UPSTREAMS:?UPSTREAMS 를 .env 에 넣는다 (aws=host:port,gcp=host:port)}
       DEFAULT_WEIGHTS: ${DEFAULT_WEIGHTS:-aws=100,gcp=0}
       SYNC_FROM: ${SYNC_FROM:-}
+      # 인프라 9: Prometheus 가 basic auth 를 켜면 /summary 쿼리에 붙인다("사용자:비밀번호"). 비면 안 붙인다.
+      PROMETHEUS_BASIC_AUTH: ${PROMETHEUS_BASIC_AUTH:-}
     volumes:
       - envoy-dynamic:/etc/envoy/dynamic
     ports:
@@ -43,9 +45,17 @@ services:
     image: prom/prometheus:v3.15.1
     restart: unless-stopped
     logging: *logging
-    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d"]
+    # 인프라 9: 클러스터 OTel 수집기의 remote write(/api/v1/write) 수신. 기본 꺼짐 — 켜면 web.yml basic auth 도 같이 켠다
+    # (basic auth 는 쿼리·UI 를 포함한 모든 경로에 걸린다 → weights-api·Grafana 도 같은 계정으로 읽는다).
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.config.file=/etc/prometheus/web.yml"
+      # 불리언 플래그는 =true/false 를 받지 않는다("unexpected true" 로 기동 실패, 로컬 확인) → --[no-] 형태로 넣는다.
+      - "--${PROMETHEUS_REMOTE_WRITE_FLAG:-no-web.enable-remote-write-receiver}"
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ${PROMETHEUS_WEB_CONFIG:-./config/prometheus-web-off.yml}:/etc/prometheus/web.yml:ro
       - prom-data:/prometheus
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
@@ -61,6 +71,8 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # 데이터소스 basic auth 비밀번호(인프라 9, datasources/prometheus.yml 이 읽는다). 인증이 꺼진 Prometheus 는 무시한다.
+      PROMETHEUS_BASIC_AUTH_PASSWORD: ${PROMETHEUS_BASIC_AUTH_PASSWORD:-}
     volumes:
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana-data:/var/lib/grafana

@@ -1,0 +1,17 @@
+# EKS 도쿄 (echo-dev-eks). 비공개 노드 → NAT 18.180.171.76 → 진입점 a·b 공인 IP 9090.
+# 9090 은 방화벽 echo-dev-entry-admin(EKS NAT 허용)으로 이미 열려 있다.
+#   kubectl --context echo-dev-eks apply -k cluster-addons/otel-collector/overlays/aws
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+configMapGenerator:
+  - name: otel-collector-env
+    namespace: echo-otel
+    behavior: merge
+    literals:
+      - CLOUD_PROVIDER=aws
+      - CLOUD_REGION=ap-northeast-1
+      - K8S_CLUSTER_NAME=echo-dev-eks
+      - ENTRY_A_ENDPOINT=http://34.158.202.103:9090/api/v1/write
+      - ENTRY_B_ENDPOINT=http://8.230.16.205:9090/api/v1/write

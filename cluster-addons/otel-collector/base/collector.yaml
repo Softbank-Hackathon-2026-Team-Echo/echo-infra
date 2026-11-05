@@ -1,0 +1,119 @@
+# OTel Collector 설정 (인프라 9). 클러스터마다 하나. 환경별 값은 overlay 의 ConfigMap otel-collector-env 가 환경 변수로 넣는다.
+#
+#   앱 파드 /metrics ──(prometheus receiver, k8s SD 15초)──▶ memory_limiter → resource(세 속성) → batch
+#        ──▶ prometheusremotewrite/entry-a · entry-b (basic auth) ──▶ 진입점 VM a·b 의 Prometheus /api/v1/write
+#
+# 이 파일에서 `$` 는 collector 환경 변수 문법(${env:...})으로만 쓴다. relabel 의 $1 같은 치환은 쓰지 않는다.
+extensions:
+  health_check:
+    endpoint: ${env:POD_IP}:13133
+  basicauth/entry:
+    client_auth:
+      username: ${env:RW_USERNAME}
+      password: ${env:RW_PASSWORD}
+
+receivers:
+  prometheus:
+    config:
+      global:
+        scrape_interval: 15s
+        scrape_timeout: 5s
+      scrape_configs:
+        - job_name: echo-apps
+          metrics_path: /metrics
+          kubernetes_sd_configs:
+            - role: pod
+          relabel_configs:
+            # Echo 가 배포한 앱(echo-was 실행기가 붙이는 라벨) 또는 손으로 표시한 파드(annotation echo.dev/scrape=true)만
+            - source_labels:
+                - __meta_kubernetes_pod_label_app_kubernetes_io_managed_by
+                - __meta_kubernetes_pod_annotation_echo_dev_scrape
+              separator: ";"
+              regex: "echo-was;.*|.*;true"
+              action: keep
+            # 앱 포트 이름 http(실행기 기본 8080) 하나만. 사이드카·DB 포트는 긁지 않는다
+            - source_labels: [__meta_kubernetes_pod_container_port_name]
+              regex: http
+              action: keep
+            - source_labels: [__meta_kubernetes_pod_phase]
+              regex: Running
+              action: keep
+            - source_labels: [__meta_kubernetes_namespace]
+              target_label: namespace
+            - source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod
+            - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+              target_label: app
+          metric_relabel_configs:
+            # 앱 지표 두 개만 보낸다(진입점 저장량을 묶는다). up 은 receiver 가 따로 만든다
+            - source_labels: [__name__]
+              regex: "http_requests_total|http_request_duration_seconds_(bucket|sum|count)"
+              action: keep
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: ${env:MEMORY_LIMIT_MIB}
+    spike_limit_mib: ${env:MEMORY_SPIKE_MIB}
+  # 세 환경을 한 그래프에서 가르는 공통 속성. resource_to_telemetry_conversion 으로 cloud_provider 등 라벨이 된다
+  resource:
+    attributes:
+      - key: cloud.provider
+        value: ${env:CLOUD_PROVIDER}
+        action: upsert
+      - key: cloud.region
+        value: ${env:CLOUD_REGION}
+        action: upsert
+      - key: k8s.cluster.name
+        value: ${env:K8S_CLUSTER_NAME}
+        action: upsert
+  batch:
+    send_batch_size: 1000
+    timeout: 5s
+
+exporters:
+  prometheusremotewrite/entry-a:
+    endpoint: ${env:ENTRY_A_ENDPOINT}
+    auth:
+      authenticator: basicauth/entry
+    timeout: 10s
+    # 안 켜면 세 속성이 target_info 에만 붙어 패널에서 group by 가 안 된다
+    resource_to_telemetry_conversion:
+      enabled: true
+    remote_write_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 1
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+  prometheusremotewrite/entry-b:
+    endpoint: ${env:ENTRY_B_ENDPOINT}
+    auth:
+      authenticator: basicauth/entry
+    timeout: 10s
+    resource_to_telemetry_conversion:
+      enabled: true
+    remote_write_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 1
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+service:
+  extensions: [health_check, basicauth/entry]
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      processors: [memory_limiter, resource, batch]
+      # 진입점 VM 두 대(a·b)가 Prometheus·Grafana 를 따로 가진다 → 둘 다 쓴다. 한쪽이 죽어도 다른 쪽은 계속 받는다
+      exporters: [prometheusremotewrite/entry-a, prometheusremotewrite/entry-b]

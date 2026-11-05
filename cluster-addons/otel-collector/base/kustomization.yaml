@@ -1,0 +1,22 @@
+# 공통 OTel Collector (인프라 9). 직접 적용하지 않는다 — overlays/{aws,gcp,onprem} 중 하나를 적용한다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: echo-otel
+resources:
+  - resources.yaml
+# 이름에 내용 해시가 붙어 설정이 바뀌면 Deployment 가 새 파드로 바뀐다(ConfigMap 만 바꿔 놓고 재시작을 잊는 일이 없다).
+configMapGenerator:
+  - name: otel-collector-config
+    files:
+      - collector.yaml
+  # 환경별 값. overlay 가 behavior: merge 로 덮는다. 기본값은 일부러 쓸 수 없는 값이다(base 를 그대로 적용하면 내보내기가 실패한다).
+  - name: otel-collector-env
+    literals:
+      - CLOUD_PROVIDER=unset
+      - CLOUD_REGION=unset
+      - K8S_CLUSTER_NAME=unset
+      - ENTRY_A_ENDPOINT=http://entry-a.invalid:9090/api/v1/write
+      - ENTRY_B_ENDPOINT=http://entry-b.invalid:9090/api/v1/write
+      - MEMORY_LIMIT_MIB=200
+      - MEMORY_SPIKE_MIB=50
+      - GOMEMLIMIT=180MiB

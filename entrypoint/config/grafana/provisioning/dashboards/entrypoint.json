@@ -7,7 +7,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": false,
   "refresh": "5s",
   "time": {
@@ -322,6 +322,159 @@
           "expr": "sum(rate(envoy_http_downstream_rq_xx{envoy_http_conn_manager_prefix=\"ingress_http\",envoy_response_code_class=\"5\"}[30s]))",
           "legendFormat": "5xx",
           "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "row",
+      "title": "세 환경 한 그래프 — 앱 지표 (OTel 수집기, cloud_provider 별)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "요청 수 (req/s, 환경별 · 앱 지표)",
+      "description": "출처: 각 클러스터 OTel 수집기가 앱 /metrics 를 15초마다 긁어 remote write 로 보낸 값(인프라 9). 진입점 Envoy 숫자와 다르다 — 헬스체크(/healthz·/readyz·/metrics)는 빼고, 진입점을 거치지 않은 클러스터 안 요청도 센다. 이전 판정은 계속 위 Envoy 기준(/counters).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (cloud_provider) (rate(http_requests_total{path!~\"/healthz|/readyz|/metrics\"}[1m]))",
+          "legendFormat": "{{cloud_provider}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "오류율 (5xx 비율, 환경별 · 앱 지표)",
+      "description": "출처: 각 클러스터 OTel 수집기가 앱 /metrics 를 15초마다 긁어 remote write 로 보낸 값(인프라 9). 진입점 Envoy 숫자와 다르다 — 헬스체크(/healthz·/readyz·/metrics)는 빼고, 진입점을 거치지 않은 클러스터 안 요청도 센다. 이전 판정은 계속 위 Envoy 기준(/counters).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 21,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (cloud_provider) (rate(http_requests_total{path!~\"/healthz|/readyz|/metrics\",status=~\"5..\"}[1m])) / sum by (cloud_provider) (rate(http_requests_total{path!~\"/healthz|/readyz|/metrics\"}[1m]))",
+          "legendFormat": "{{cloud_provider}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "p95 지연 (초, 환경별 · 앱 지표)",
+      "description": "출처: 각 클러스터 OTel 수집기가 앱 /metrics 를 15초마다 긁어 remote write 로 보낸 값(인프라 9). 진입점 Envoy 숫자와 다르다 — 헬스체크(/healthz·/readyz·/metrics)는 빼고, 진입점을 거치지 않은 클러스터 안 요청도 센다. 이전 판정은 계속 위 Envoy 기준(/counters).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 21,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, cloud_provider) (rate(http_request_duration_seconds_bucket{path!~\"/healthz|/readyz|/metrics\"}[1m])))",
+          "legendFormat": "{{cloud_provider}}",
+          "refId": "A"
         }
       ]
     }

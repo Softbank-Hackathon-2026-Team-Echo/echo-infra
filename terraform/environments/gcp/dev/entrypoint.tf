@@ -11,6 +11,7 @@ locals {
       fileset(local.entry_src, "docker-compose.yml"),
       fileset(local.entry_src, "weights-api/*"),
       fileset(local.entry_src, "config/**"),
+      fileset(local.entry_src, "scripts/render-prometheus-web.sh"),
     ) : p => file("${local.entry_src}/${p}")
   }
 
@@ -54,6 +55,23 @@ resource "google_compute_firewall" "entry_admin" {
   target_tags   = ["entrypoint"]
 }
 
+# 인프라 9: 클러스터 OTel 수집기가 Prometheus(9090) /api/v1/write 로 보낸다. admin CIDR(EKS·GKE NAT)에 없는 곳
+# (온프레 EC2 공인 IP)만 9090 하나를 연다. 인증은 Prometheus basic auth(web.yml, entrypoint_prometheus_remote_write).
+resource "google_compute_firewall" "entry_remote_write" {
+  count = length(var.entrypoint_remote_write_cidrs) > 0 ? 1 : 0
+
+  name    = "${local.entry_name}-remote-write"
+  network = google_compute_network.this.name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["9090"]
+  }
+
+  source_ranges = var.entrypoint_remote_write_cidrs
+  target_tags   = ["entrypoint"]
+}
+
 # SSH 는 IAP 터널로만 (OS Login). 공개 22 는 열지 않는다.
 resource "google_compute_firewall" "entry_iap_ssh" {
   name    = "${local.entry_name}-iap-ssh"
@@ -93,7 +111,8 @@ resource "google_project_iam_member" "entry" {
 # 비밀값 껍데기. 값(version)은 VM 이 첫 부팅 때 만들어 넣는다 → state 에 비밀값이 남지 않는다.
 # 읽기: gcloud secrets versions access latest --secret=<이름>
 resource "google_secret_manager_secret" "entry" {
-  for_each  = toset(["weights-token", "grafana-admin"])
+  # prometheus-remote-write: 인프라 9 basic auth 비밀번호(사용자 echo-otel). VM 이 처음 켤 때 만든다.
+  for_each  = toset(["weights-token", "grafana-admin", "prometheus-remote-write"])
   secret_id = "${local.entry_name}-${each.value}"
 
   replication {
@@ -156,6 +175,8 @@ resource "google_compute_instance" "entry" {
       project_id      = var.project_id
       secret_token    = google_secret_manager_secret.entry["weights-token"].secret_id
       secret_grafana  = google_secret_manager_secret.entry["grafana-admin"].secret_id
+      secret_prom_rw  = google_secret_manager_secret.entry["prometheus-remote-write"].secret_id
+      prom_rw_enabled = var.entrypoint_prometheus_remote_write
       sync_from       = "" # 주 진입점: 동기화 없음
     })
   }
@@ -231,6 +252,8 @@ resource "google_compute_instance" "entry_secondary" {
       project_id      = var.project_id
       secret_token    = google_secret_manager_secret.entry["weights-token"].secret_id
       secret_grafana  = google_secret_manager_secret.entry["grafana-admin"].secret_id
+      secret_prom_rw  = google_secret_manager_secret.entry["prometheus-remote-write"].secret_id
+      prom_rw_enabled = var.entrypoint_prometheus_remote_write
       sync_from       = "http://${google_compute_instance.entry.network_interface[0].network_ip}:8080"
     })
   }
