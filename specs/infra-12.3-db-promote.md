@@ -30,7 +30,7 @@
 ### 제외
 - echo-was 가 `ALLOW_PROMOTE` 를 넘기는 일(API 서버 17, echo-was#75: EMERGENCY 계획만)
 - A 를 막는 강제 차단(fencing). A 클러스터가 반쯤 살아 도쿄 앱이 A 에 계속 쓰는 경우는 `resync-a.sh` 1단계(A 백엔드를 B 로)에서 막고, 그 사이 쓰기는 2단계에서 "A 전용 행"으로 보고된다
-- 운영 시험(A NLB 허용 목록 막기)은 서동옥 님과 시간을 맞춘 뒤
+- 운영 시험은 서동옥 님과 시간을 맞춘 뒤. 장애 흉내는 **A Postgres StatefulSet 을 0 으로 줄여** 낸다(데이터는 PVC 에 남음, 1 로 올리면 되돌아옴). A NLB 허용 목록을 막는 것만으로는 안 된다: `a_reachable` 은 NLB 가 아니라 EKS API 로 `echo-pg-0` 에 exec 하므로 "A 에 닿는다"가 되어 승격이 거부된다
 
 ## 4. 설계
 
@@ -53,7 +53,7 @@ resync-a.sh  A 닿음 + B WRITER 확인 → A 백엔드 B 로 → A 전용 행 �
 - [x] `ALLOW_PROMOTE` 없으면 A 가 막혀 있어도 승격하지 않고 종료 1 — 시험 14
 - [x] A 를 다시 연 뒤 `resync-a.sh` 로 A 가 B 를 따라오고, `rollback.sh` 로 A 복귀까지 — 시험 17·18 (롤백 장부 대조에 잃은 1건이 누락 1 로 나옴)
 - [x] 절차서에 "원본 장애 승격"·"A 다시 맞추기" 절 — `docs/design/롤백 절차서 (B→A).md` 5·6절
-- [ ] 운영(A NLB 막기) 한 바퀴
+- [ ] 운영 한 바퀴 (A `echo-pg` replicas 0 → 승격 → replicas 1 → `resync-a.sh` → `rollback.sh`)
 
 ## 6. 시험 결과 (로컬, 2026-11-05)
 
