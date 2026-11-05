@@ -15,6 +15,7 @@ if [[ $(sub_enabled A echo_sub_rev) == 1 ]]; then echo "[건너뜀] A 가 이미
 echo "[1] A PgBouncer 를 B 로 (도쿄 쪽 쓰기도 B 로 간다)"
 pgb A "PAUSE app;" >/dev/null || true
 repoint A "$B_HOST"
+persist_backend A   # 파드가 다시 떠도 A PgBouncer 가 B 를 보게(재시작 때 A 로 돌아가면 쓰기 담당이 둘)
 pgb A "RESUME app;" >/dev/null || true
 
 echo "[2] A 에만 남은 장부 행"

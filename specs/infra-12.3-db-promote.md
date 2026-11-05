@@ -24,6 +24,7 @@
 - `cutover.sh` 분기: A 에 닿지 않으면 `ALLOW_PROMOTE=true` 일 때만 `promote.sh` 로 넘어가고, 아니면 종료 1
 - `resync-a.sh`(사람이 실행): A 백엔드를 B 로 → A 에만 남은 장부 행 보고 → B 옛 구독 `echo_sub` 정리(A 슬롯 포함) → A 복제 대상 표 비움 → A 가 B 를 구독(`copy_data=true`) → 초기 복사 대기
 - `common.sh`: `a_reachable`(요청 제한 5초 × 3회), `b_side_state`(B 만 보고 WRITER·REPLICA·PARTIAL)
+- ConfigMap 유지(12.1 `persist_backend`): `promote.sh` 는 RESUME 뒤 B ConfigMap 을, `resync-a.sh` 는 A 백엔드를 B 로 바꾼 뒤 A ConfigMap 을 맞춘다. 다시 실행하면 B 가 WRITER 일 때 먼저 맞춘다
 - 절차서 5·6절, k8s README, 시험 13~18
 
 ### 제외
@@ -56,7 +57,7 @@ resync-a.sh  A 닿음 + B WRITER 확인 → A 백엔드 B 로 → A 전용 행 �
 
 ## 6. 시험 결과 (로컬, 2026-11-05)
 
-`bash replication/k8s/scripts/tests/run.sh` — 12.1 시나리오 1~10 + 12.3 시나리오 11~18, **59개 통과 · 실패 0**.
+`bash replication/k8s/scripts/tests/run.sh` — 12.1 시나리오 1~10-1 + 12.3 시나리오 11~18, **76개 통과 · 실패 0** (12.1 의 ConfigMap 유지 반영 뒤).
 
 | # | 시나리오 | 결과 |
 |---|---|---|

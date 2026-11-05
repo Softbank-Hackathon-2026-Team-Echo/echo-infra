@@ -86,9 +86,11 @@ scripts/verify.sh
 | 1 | 바뀐 것 없음 (시작 전 확인 실패 · 따라잡기 실패 · 쓰기 정지 중 실패 → 양쪽 RESUME 함) | 출발 그대로 | 트래픽을 출발로 되돌리거나 원인을 고친 뒤 다시 |
 | 2 | 부분 상태 (구독·백엔드를 바꾸는 중 실패 → **RESUME 하지 않음**, 또는 시작 전에 이미 어긋나 있음) | 판단 불가 | 아래 "부분 상태 복구" |
 
+**PgBouncer 백엔드는 ConfigMap 에도 남긴다.** ini 는 emptyDir 이고 파드가 다시 뜨면 `copy-ini` 가 ConfigMap `echo-pgbouncer-ini` 를 복사한다. 그래서 `cutover.sh`·`rollback.sh` 는 RESUME 뒤(쓰기 정지 창 밖) 두 ConfigMap 의 `app = host=` 도 지금 백엔드로 바꾼다(`persist_backend`). 이것이 실패하면 종료 2 이고, 같은 명령을 다시 돌리면 시작 전 확인이 맞춘 뒤 `ALREADY_DONE` 으로 끝난다. 주의: 컷오버 뒤에 `aws-tokyo/`·`gcp-seoul/` 매니페스트를 그대로 `apply -k` 하면 ConfigMap 이 저장소 값(A 가 쓰기 담당)으로 돌아간다 — 적용 전에 `diff -k` 로 `app = host=` 줄을 본다.
+
 `PLAN_ID` 를 주면 결과 표 행의 `plan_id` 에 남는다(echo-was 가 시간 창 대신 계획으로 찾을 수 있게). 같은 `(plan_id, kind)` 는 한 번만 기록된다(고유 색인).
 
-로컬 시험: `scripts/tests/run.sh` (Docker 로 Postgres 두 대를 띄우고 `tests/bin/kubectl` 이 `kubectl exec` 를 넘긴다. 컷오버·롤백 한 바퀴 + 멱등 + 실패 처리 + 부분 상태 복구 + 승격·다시 맞추기, 59개 확인).
+로컬 시험: `scripts/tests/run.sh` (Docker 로 Postgres 두 대를 띄우고 `tests/bin/kubectl` 이 `kubectl exec` 를 넘긴다. 컷오버·롤백 한 바퀴 + 멱등 + 실패 처리 + 부분 상태 복구 + PgBouncer 재시작 + 승격·다시 맞추기, 76개 확인).
 
 ### 부분 상태 복구
 

@@ -44,3 +44,4 @@ GUARD_PHASE=done; trap - ERR
 printf '컷오버 완료. max(n)=%s\n 쓰기 정지 시간(PAUSE→RESUME): %.3fs\n   ├ PAUSE 드레인: %.3fs\n   ├ 따라잡기: %.3fs\n   └ 시퀀스·역방향 구독·repoint·RESUME: %.3fs\n' \
   "$maxA" "$(echo "$t1-$t0" | bc -l)" "$(echo "$tp-$t0" | bc -l)" "$(echo "$tc-$tp" | bc -l)" "$(echo "$t1-$tc" | bc -l)"
 record_run CUTOVER A B "$t0" "$tp" "$tc" "$t1"   # RESUME 뒤 B 에 결과 한 줄(echo-was 가 읽음)
+persist_after_switch A B   # 파드가 다시 떠도 새 백엔드가 유지되게(쓰기 정지 창 밖)

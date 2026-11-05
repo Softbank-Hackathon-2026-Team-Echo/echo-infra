@@ -28,6 +28,7 @@
 - 결과 표 칸: `plan_id uuid`, `mode text`(`NORMAL`·`PROMOTE`, 검사 제약), `rpo_estimate_ms integer`, 고유 색인 `(plan_id, kind) WHERE plan_id IS NOT NULL`
 - `PLAN_ID` 형식 검사(uuid 가 아니면 SQL 에 넣지 않고 1)
 - 로컬 시험 `replication/k8s/scripts/tests/run.sh`
+- PgBouncer 백엔드를 ConfigMap 에도 남기기(`persist_backend`): 파드 재시작 때 `copy-ini` 가 옛 백엔드를 복사해 쓰기 담당이 둘이 되는 것을 막는다(PR #45 김지민 리뷰 제안 1). RESUME 뒤에 하고, 실패하면 종료 2, 다시 실행하면 `preflight` 가 맞춘다
 - README: 종료 코드 표, 부분 상태 복구 표
 
 ### 제외
@@ -65,7 +66,7 @@ cutover.sh / rollback.sh
 
 ## 6. 시험 결과 (로컬, 2026-11-05)
 
-`replication/k8s/scripts/tests/run.sh` — Postgres 17 두 대(Docker) + 시험용 `kubectl`(exec 를 컨테이너로 넘김, PgBouncer 는 ini 파일·명령 기록으로 대신, `sslmode=require` → `disable`). **34개 통과 · 실패 0.**
+`replication/k8s/scripts/tests/run.sh` — Postgres 17 두 대(Docker) + 시험용 `kubectl`(exec 를 컨테이너로 넘김, PgBouncer 는 ini 파일·명령 기록으로 대신, `sslmode=require` → `disable`). **47개 통과 · 실패 0.**
 
 | # | 시나리오 | 결과 |
 |---|---|---|
@@ -79,6 +80,8 @@ cutover.sh / rollback.sh
 | 8 | 쓰기 정지 중(시퀀스 맞춤) 실패 | 종료 1, 양쪽 RESUME, 쓰기 담당 A |
 | 9 | 전환 중(역방향 구독 만들기) 실패 | 종료 2, RESUME 0회, `PARTIAL`, 다시 실행해도 2 |
 | 10 | README 부분 상태 복구 첫 줄대로 되돌린 뒤 다시 | 쓰기 담당 A, 컷오버 성공, 장부 62·누락 0·중복 0 |
+| 4-1·7-1 | 컷오버·롤백 뒤 ConfigMap 확인 + PgBouncer 재시작 흉내(ConfigMap → ini 복사) | ConfigMap 이 새 백엔드, 재시작 뒤에도 쓰기 담당 그대로 |
+| 11 | 롤백 뒤 ConfigMap 쓰기 실패 → 같은 명령 다시 | 종료 2 + 경고 → 다시 실행하면 맞추고 `ALREADY_DONE`, 재시작 뒤에도 A |
 
 로컬 쓰기 정지 시간(3.8~4.9초)은 `docker exec` 기동 시간이 섞인 값이라 운영(5.4~5.6초, kubectl exec)과 비교 대상이 아니다.
 

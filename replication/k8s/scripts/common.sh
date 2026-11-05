@@ -116,6 +116,27 @@ pgb_backend() { local side=$1 ctx; [[ $side == A ]] && ctx=$A_CTX || ctx=$B_CTX
   kubectl --context "$ctx" -n "$NS" exec -i deploy/echo-pgbouncer -- \
     sed -n 's/^app = host=\([^ ]*\).*/\1/p' /etc/pgbouncer/pgbouncer.ini; }
 
+# 지금 PgBouncer 백엔드를 ConfigMap 에도 적는다: persist_backend <A|B>
+# ini 는 emptyDir 이고 파드가 다시 뜨면 copy-ini 가 ConfigMap 을 복사한다. repoint 만 하면 재시작 때 옛 백엔드로 돌아가
+# 쓰기 담당이 둘이 될 수 있다(PR #45 리뷰). 쓰기 정지 창 밖에서 부르고, 이미 같으면 아무것도 하지 않는다.
+# `f || …` 로 불리면 함수 안에서 set -e 가 꺼지므로, 실패할 수 있는 명령마다 직접 return 1 한다.
+persist_backend() { local side=$1 ctx live ini new esc; [[ $side == A ]] && ctx=$A_CTX || ctx=$B_CTX
+  live=$(pgb_backend "$side") && [[ -n $live ]] || return 1
+  ini=$(kubectl --context "$ctx" -n "$NS" get configmap echo-pgbouncer-ini -o 'jsonpath={.data.pgbouncer\.ini}') || return 1
+  [[ $(sed -n 's/^app = host=\([^ ]*\).*/\1/p' <<<"$ini") == "$live" ]] && return 0
+  new=$(sed "s/^app = host=[^ ]*/app = host=$live/" <<<"$ini")
+  esc=$(sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' <<<"$new" | awk '{printf "%s\\n", $0}')
+  kubectl --context "$ctx" -n "$NS" patch configmap echo-pgbouncer-ini --type merge -p "{\"data\":{\"pgbouncer.ini\":\"$esc\"}}" >/dev/null || return 1
+  echo " [ConfigMap] $side PgBouncer 백엔드를 $live 로 적었다(파드가 다시 떠도 유지)"
+}
+
+# RESUME 뒤 ConfigMap 을 맞춘다. 실패하면 쓰기 담당은 바뀌었지만 재시작에 약한 상태라 종료 2(다시 실행하면 preflight 가 맞춘다).
+persist_after_switch() { local s
+  for s in "$@"; do
+    persist_backend "$s" || { echo "[주의] $s ConfigMap 을 맞추지 못했다 — PgBouncer 파드가 다시 뜨면 옛 백엔드로 돌아간다. 같은 명령을 다시 실행하면 맞춘다" >&2; exit 2; }
+  done
+}
+
 # 지금 쓰기 담당: A · B · PARTIAL(…). 구독 방향과 두 PgBouncer 백엔드가 같은 쪽을 가리킬 때만 그쪽이다.
 # - 구독: A 가 쓰기 담당이면 B 의 echo_sub 가 켜져 있고 A 에 echo_sub_rev 가 없다. B 면 그 반대(cutover.sh 뒤).
 #   echo-was DataSyncChecker 의 TARGET_IS_WRITER 판정(#73)과 같은 사실을 본다.
@@ -144,12 +165,16 @@ plan_runs() { [[ -z ${PLAN_ID:-} ]] && { echo 0; return; }
 # 시작 전 확인: 이미 끝났으면 exit 0, 판단할 수 없으면 exit 2. preflight <CUTOVER|ROLLBACK> <from> <to>
 preflight() {
   local kind=$1 from=$2 to=$3 w n
+  w=$(writer_side)
+  case $w in
+    A|B) persist_backend A; persist_backend B ;;   # 지난 실행이 ConfigMap 을 못 맞췄으면 여기서 맞춘다
+    *)   echo "[중단] 쓰기 담당을 판단할 수 없다: $w — replication/k8s/README.md '부분 상태 복구'를 따른다" >&2; exit 2 ;;
+  esac
   # 따로 대입한다: [[ $(…) ]] 안에서 조회가 실패하면 빈 값이 "기록 있음"으로 읽힌다.
   n=$(plan_runs "$to" "$kind")
   if [[ $n != 0 ]]; then
     echo "[건너뜀] ALREADY_DONE: 이 계획($PLAN_ID)의 $kind 기록이 이미 있다"; exit 0
   fi
-  w=$(writer_side)
   case $w in
     "$to")   echo "[건너뜀] ALREADY_WRITER: 쓰기 담당이 이미 $to 다"; exit 0 ;;
     "$from") echo "[확인] 쓰기 담당 $from → $to 로 옮긴다" ;;

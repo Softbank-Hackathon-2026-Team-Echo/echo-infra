@@ -15,13 +15,17 @@ if a_reachable && [[ ${FORCE_PROMOTE:-} != 1 ]]; then
   echo "[중단] A 에 닿는다 — 승격하지 않는다(쓰기 담당이 둘이 된다). 정상 컷오버는 cutover.sh 를 쓴다" >&2; exit 1
 fi
 pg B <<<"$OPS_DDL" >/dev/null   # 결과 표·칸을 B 에만(A 에는 닿지 않는다). REFRESH 는 A 연결이 필요해 하지 않는다
+s=$(b_side_state)
+case $s in
+  WRITER)  persist_backend B ;;   # 지난 승격이 ConfigMap 을 못 맞췄으면 여기서 맞춘다
+  REPLICA) ;;
+  *)       echo "[중단] B 상태를 판단할 수 없다: $s — replication/k8s/README.md '부분 상태 복구'를 따른다" >&2; exit 2 ;;
+esac
 n=$(plan_runs B CUTOVER)
 if [[ $n != 0 ]]; then echo "[건너뜀] ALREADY_DONE: 이 계획($PLAN_ID)의 CUTOVER 기록이 이미 있다"; exit 0; fi
-s=$(b_side_state)
 case $s in
   WRITER)  echo "[건너뜀] ALREADY_WRITER: 쓰기 담당이 이미 B 다"; exit 0 ;;
   REPLICA) echo "[확인] A 에 닿지 않는다 → B 를 쓰기 담당으로 올린다" ;;
-  *)       echo "[중단] B 상태를 판단할 수 없다: $s — replication/k8s/README.md '부분 상태 복구'를 따른다" >&2; exit 2 ;;
 esac
 last=$(pg B -c "SELECT EXTRACT(EPOCH FROM COALESCE((SELECT last_msg_receipt_time FROM pg_stat_subscription WHERE subname = 'echo_sub' AND last_msg_receipt_time IS NOT NULL LIMIT 1), (SELECT max(wrote_at) FROM demo.seq_write)));")
 GUARD_PHASE=paused
@@ -38,4 +42,5 @@ GUARD_PHASE=done; trap - ERR
 rpo=NULL; [[ -n $last ]] && rpo=$(printf '%.0f' "$(echo "($t0 - $last) * 1000" | bc -l)")
 printf '승격 완료. 쓰기 담당 = B\n 쓰기 정지 시간(PAUSE→RESUME): %.3fs\n 잃었을 수 있는 범위(상한): %s ms\n' "$(echo "$t1-$t0" | bc -l)" "$rpo"
 record_run CUTOVER A B "$t0" "$tp" "$tp" "$t1" PROMOTE "$rpo"
+persist_after_switch B   # 파드가 다시 떠도 B 백엔드가 유지되게. A 는 닿지 않으니 resync-a.sh 가 맞춘다
 echo " A 가 살아나면: A_HOST=… B_HOST=… replication/k8s/scripts/resync-a.sh"
