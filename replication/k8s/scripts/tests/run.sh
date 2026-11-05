@@ -15,6 +15,8 @@ q()    { local c; [[ $1 == A ]] && c=echo-t-pg-a || c=echo-t-pg-b; docker exec -
 run()  { local out rc; out=$("$@" 2>&1); rc=$?; LAST_OUT=$out; echo "$out" | sed 's/^/     │ /'; return $rc; }
 writer() { (source "$S/common.sh"; writer_side) 2>/dev/null; }
 pauses() { grep -c 'PAUSE' "$STATE/pgb.log" 2>/dev/null || true; }
+cmhost() { sed -n 's/^app = host=\([^ ]*\).*/\1/p' "$STATE/cm_$1.ini"; }
+restart() { cp "$STATE/cm_$1.ini" "$STATE/pgb_$1.ini"; }   # 파드 재시작 흉내: copy-ini 가 ConfigMap 을 복사
 wait_n() { local side=$1 n=$2 i; for i in $(seq 1 50); do [[ $(q "$side" "SELECT COALESCE(max(n),0) FROM demo.seq_write;") == "$n" ]] && return 0; sleep 0.2; done; return 1; }
 P1=11111111-1111-4111-8111-111111111111 P2=22222222-2222-4222-8222-222222222222
 P3=33333333-3333-4333-8333-333333333333 P4=44444444-4444-4444-8444-444444444444
@@ -36,6 +38,7 @@ for side in A B; do q "$side" "
 rm -rf "$STATE"; mkdir -p "$STATE"; : > "$STATE/pgb.log"
 echo "app = host=echo-pg port=5432 dbname=app" > "$STATE/pgb_A.ini"
 echo "app = host=$A_HOST port=5432 dbname=app" > "$STATE/pgb_B.ini"
+cp "$STATE/pgb_A.ini" "$STATE/cm_A.ini"; cp "$STATE/pgb_B.ini" "$STATE/cm_B.ini"; : > "$STATE/cm.log"
 q A "INSERT INTO demo.seq_write (n) SELECT g FROM generate_series(1, 50) g;" >/dev/null
 run "$S/subscribe.sh" >/dev/null || { echo "subscribe.sh 실패"; echo "$LAST_OUT"; exit 1; }
 wait_n B 50 && ok "정방향 복제 A→B 초기 복사 50건" || bad "초기 복사"
@@ -59,6 +62,12 @@ check "B 의 P1 기록 (kind|mode|누락|중복)" "CUTOVER|NORMAL|0|0" "$(q B "S
 sleep 1; check "기록이 A 로 역복제됨" 1 "$(q A "SELECT count(*) FROM echo_ops.cutover_runs WHERE plan_id='$P1';")"
 check "PAUSE 2회(A·B)" 2 "$(pauses)"
 
+echo "== 4-1. 컷오버 뒤 ConfigMap 도 새 백엔드 → PgBouncer 파드가 다시 떠도 B 가 쓰기 담당"
+check "A ConfigMap 백엔드" "$B_HOST" "$(cmhost A)"
+check "B ConfigMap 백엔드" echo-pg "$(cmhost B)"
+restart A; restart B
+check "재시작 뒤 writer_side" B "$(writer)"
+
 echo "== 5. 같은 PLAN_ID 로 다시 → ALREADY_DONE, 쓰기 정지 없음"
 run env PLAN_ID=$P1 "$S/cutover.sh"; check "종료 코드" 0 $?
 [[ $LAST_OUT == *ALREADY_DONE* ]] && ok "ALREADY_DONE 출력" || bad "ALREADY_DONE 출력 없음"
@@ -77,6 +86,12 @@ check "writer_side" A "$(writer)"
 check "A 의 P3 기록 (kind|장부|누락|중복)" "ROLLBACK|60|0|0" "$(q A "SELECT kind||'|'||rows_total||'|'||missing_rows||'|'||duplicate_rows FROM echo_ops.cutover_runs WHERE plan_id='$P3';")"
 q A "INSERT INTO demo.seq_write (n) VALUES (61);" >/dev/null
 wait_n B 61 && ok "롤백 뒤 정방향 복제 A→B 재개" || bad "정방향 복제 재개"
+
+echo "== 7-1. 롤백 뒤 ConfigMap 도 A 로 → 재시작해도 A 가 쓰기 담당"
+check "A ConfigMap 백엔드" echo-pg "$(cmhost A)"
+check "B ConfigMap 백엔드" "$A_HOST" "$(cmhost B)"
+restart A; restart B
+check "재시작 뒤 writer_side" A "$(writer)"
 
 echo "== 8. 쓰기 정지 중(시퀀스 맞춤) 실패 → 종료 1, 양쪽 RESUME, 쓰기 담당 그대로"
 : > "$STATE/pgb.log"
@@ -98,6 +113,17 @@ q A "INSERT INTO demo.seq_write (n) VALUES (62);" >/dev/null
 wait_n B 62 && ok "정방향 복제 다시 흐름" || bad "정방향 복제"
 run env PLAN_ID=$P4 "$S/cutover.sh"; check "종료 코드" 0 $?
 check "B 의 P4 기록 (장부|누락|중복)" "62|0|0" "$(q B "SELECT rows_total||'|'||missing_rows||'|'||duplicate_rows FROM echo_ops.cutover_runs WHERE plan_id='$P4';")"
+
+echo "== 11. 롤백 뒤 ConfigMap 맞추기 실패 → 종료 2, 같은 명령을 다시 돌리면 맞추고 ALREADY_DONE"
+Q1=99999999-9999-4999-8999-999999999999
+run env FAIL_CM=A PLAN_ID=$Q1 "$S/rollback.sh"; check "종료 코드" 2 $?
+check "쓰기 담당은 A 로 바뀜" A "$(writer)"
+check "A ConfigMap 은 아직 옛 값" "$B_HOST" "$(cmhost A)"
+run env PLAN_ID=$Q1 "$S/rollback.sh"; check "다시 실행 → 종료 코드" 0 $?
+[[ $LAST_OUT == *ALREADY_DONE* ]] && ok "ALREADY_DONE 출력" || bad "ALREADY_DONE 출력 없음"
+check "A ConfigMap 맞춰짐" echo-pg "$(cmhost A)"
+restart A; restart B
+check "재시작 뒤 writer_side" A "$(writer)"
 
 echo; echo "결과: 통과 $pass · 실패 $fail"
 [[ $fail == 0 ]]

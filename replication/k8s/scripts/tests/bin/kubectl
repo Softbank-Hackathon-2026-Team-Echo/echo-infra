@@ -5,6 +5,18 @@
 # FAIL_SQL(정규식)에 맞는 인자가 있으면 실패해 스크립트의 실패 처리(guard_on_error)를 시험한다.
 set -euo pipefail
 export MSYS_NO_PATHCONV=1
+# ConfigMap echo-pgbouncer-ini 는 $STATE/cm_{A,B}.ini 로 대신한다(get = 읽기, patch = data.pgbouncer.ini 바꾸기).
+all=" $* "
+if [[ $all == *" get configmap echo-pgbouncer-ini "* || $all == *" patch configmap echo-pgbouncer-ini "* ]]; then
+  c=; p=; prev=
+  for a in "$@"; do [[ $prev == --context ]] && c=$a; [[ $prev == -p ]] && p=$a; prev=$a; done
+  [[ $c == "$A_CTX" ]] && s=A || s=B
+  if [[ $all == *" get "* ]]; then cat "$STATE/cm_$s.ini"; exit 0; fi
+  # FAIL_CM=<A|B>: 그쪽 ConfigMap 쓰기(patch)만 실패시킨다
+  if [[ -n ${FAIL_CM:-} && $s == "$FAIL_CM" ]]; then echo "[fake kubectl] FAIL_CM 로 실패: $s" >&2; exit 1; fi
+  python -I -c 'import json,sys; sys.stdout.buffer.write(json.loads(sys.argv[1])["data"]["pgbouncer.ini"].encode())' "$p" > "$STATE/cm_$s.ini"
+  echo "$s" >> "$STATE/cm.log"; exit 0
+fi
 ctx= target=
 while [[ $# -gt 0 ]]; do
   case $1 in
