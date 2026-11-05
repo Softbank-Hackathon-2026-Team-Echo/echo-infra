@@ -67,4 +67,5 @@ docs/references.md         # 참고·가져온 코드 기록
 - **버전**: Terraform `1.16.4`(`.terraform-version`), tflint `0.64.0`.
 - **검사**: `bash scripts/check.sh` — `terraform fmt -check -recursive` → 루트별 `init -backend=false` + `validate` → `tflint --recursive`. provider 는 `~/.terraform.d/plugin-cache` 를 같이 쓴다.
 - **품질 게이트**: Claude Code PreToolUse 훅(`.claude/settings.json`)이 `git add`·`git commit` 전 `scripts/check.sh`, `git push` 전 `terraform fmt -check` 를 돌려 실패 시 차단한다(180초 제한). 파일 편집은 Edit/Write 도구로 한다.
+- **이전 엔진 스크립트 시험**: `bash replication/k8s/scripts/tests/run.sh` — Docker 로 Postgres 두 대를 띄워 `cutover.sh`·`rollback.sh` 의 멱등·실패 처리를 확인한다(운영 클러스터를 건드리지 않는다).
 - **PR 본문**: `write-pr` 스킬(`.claude/skills/write-pr/`)이 `.github/PULL_REQUEST_TEMPLATE.md` 구조로 `docs/PR.md`(gitignore)를 작성한다. push·PR 생성은 사람이 한다.
