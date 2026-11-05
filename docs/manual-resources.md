@@ -13,6 +13,7 @@ echo-was 실제 실행기를 켜는 동안(11/3~11/4) 시간 때문에 Terraform
 - 껍데기만 Terraform 이 갖는다. `google_secret_manager_secret_version` 은 만들지 않는다(값이 state 에 남지 않게).
 - 11/3 에 CLI 로 먼저 만든 자원이라 `import` 블록으로 가져왔고, 11/4 apply 뒤 블록은 지웠다(state 에 4개 자원이 있다).
 - 새 환경에서 apply 만 하면 껍데기와 권한이 생긴다. 값이 없으면 echo-was 일꾼의 해당 기능(대표 주소 레코드·온프레 배포)이 비밀을 못 읽어 실패한다.
+- 진입점 9090 방화벽 `echo-dev-entry-remote-write` 의 허용 CIDR(`entrypoint_remote_write_cidrs`, 적용자 로컬 tfvars)의 원본은 온프레 EIP 다 — `terraform/environments/aws/onprem-demo` 의 `terraform output public_ip` 에 `/32` 를 붙여 넣는다(EIP 를 다시 만들면 이 값도 바꿔 apply).
 
 ## Terraform 으로 옮기지 않은 것: Cloudflare (손으로 관리)
 

@@ -124,5 +124,5 @@ rm -f k.pem k.pub sealed.txt
 
 - **고정 진입점(Envoy)에 세 번째 갈래로 붙이기는 #13 몫이다.** Envoy 는 지금 `{서비스}.echoport.uk` Host 를 그대로 넘기는데, 온프레는 터널(Cloudflare)을 거쳐야 닿는다. Envoy 업스트림을 `demo-onprem-…echoport.uk:443` 으로 두면 TLS(SNI)와 Host 바꾸기(`host_rewrite_literal`)가 필요하다. 그대로 `*.echoport.uk` 를 보내면 와일드카드 레코드가 Envoy 자신을 가리켜 고리가 생긴다. 온프레 Ingress 가 고정 Host 도 받게 하는 방법도 있다.
 - echo-was 의 실제 온프레 실행기(배포 = Ingress·디플로이먼트 적용 + DNS 한 줄)는 #3 몫이다. 지금 앱은 이 스크립트가 직접 올렸다.
-- 실제 사무실 온프레라면 이 구성 그대로 공인 IP 없이 동작한다. 시연 기기가 EC2 인 것은 비용·편의 때문이고, EC2 의 공인 IP 는 나가는 길(NAT 대신)로만 쓴다.
+- 실제 사무실 온프레라면 이 구성 그대로 공인 IP 없이 동작한다. 시연 기기가 EC2 인 것은 비용·편의 때문이고, EC2 의 공인 IP 는 나가는 길(NAT 대신)로만 쓴다. 이 IP 는 EIP 로 고정한다 — 진입점 9090 remote write 방화벽이 이 IP/32 만 허용하기 때문이다(`terraform output public_ip`, 멈췄다 켜도 그대로).
 - DB 는 기기 디스크(local-path) 한 곳에만 있다. 백업·복제는 #7·#12·#14 몫이다.
