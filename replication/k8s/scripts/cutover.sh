@@ -6,10 +6,16 @@
 #   B_LOCAL(기본 echo-pg: B 클러스터 안 PgBouncer 가 보는 B 주소), A 쪽 PgBouncer 는 B_HOST(인터넷·TLS) 로 간다.
 #   다시 돌려도 안전하다: 쓰기 담당이 이미 B 거나 같은 PLAN_ID 기록이 있으면 아무것도 하지 않는다(인프라 12.1).
 #   종료 코드 0 끝남 · 1 바뀐 것 없음 · 2 부분 상태(common.sh guard_on_error).
+#   A 에 닿지 않을 때: ALLOW_PROMOTE=true 면 promote.sh 로 넘어가고(재난 긴급 이전 전용), 아니면 종료 1.
 source "$(dirname "$0")/common.sh"
 : "${B_HOST:?B_HOST=<gcp-seoul/30-expose.yaml 의 EXTERNAL-IP>}"
 trap guard_on_error ERR
 plan_id_check
+# A 에 닿지 않으면(재난) 정상 컷오버를 할 수 없다. ALLOW_PROMOTE=true 일 때만 승격으로 넘어간다(인프라 12.3).
+if ! a_reachable; then
+  if [[ ${ALLOW_PROMOTE:-} == true ]]; then echo "[분기] A 에 닿지 않는다 → promote.sh"; exec "$(dirname "$0")/promote.sh"; fi
+  echo "[중단] A 에 닿지 않는다 — 바뀐 것 없음(승격은 ALLOW_PROMOTE=true 일 때만)" >&2; exit 1
+fi
 ops_table_ensure   # 결과 표가 양쪽에 있는지(쓰기 정지 창 밖에서). 인프라 7.2
 preflight CUTOVER A B   # 이미 B 가 쓰기 담당이거나 이 계획 기록이 있으면 여기서 끝(인프라 12.1)
 GUARD_PHASE=paused

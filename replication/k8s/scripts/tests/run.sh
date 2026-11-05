@@ -20,6 +20,9 @@ restart() { cp "$STATE/cm_$1.ini" "$STATE/pgb_$1.ini"; }   # 파드 재시작 �
 wait_n() { local side=$1 n=$2 i; for i in $(seq 1 50); do [[ $(q "$side" "SELECT COALESCE(max(n),0) FROM demo.seq_write;") == "$n" ]] && return 0; sleep 0.2; done; return 1; }
 P1=11111111-1111-4111-8111-111111111111 P2=22222222-2222-4222-8222-222222222222
 P3=33333333-3333-4333-8333-333333333333 P4=44444444-4444-4444-8444-444444444444
+P5=55555555-5555-4555-8555-555555555555 P6=66666666-6666-4666-8666-666666666666
+P7=77777777-7777-4777-8777-777777777777 P8=88888888-8888-4888-8888-888888888888
+bstate() { (source "$S/common.sh"; b_side_state) 2>/dev/null; }
 
 cleanup() { [[ ${KEEP:-} == 1 ]] || docker compose down -v >/dev/null 2>&1; }
 trap cleanup EXIT
@@ -114,7 +117,7 @@ wait_n B 62 && ok "정방향 복제 다시 흐름" || bad "정방향 복제"
 run env PLAN_ID=$P4 "$S/cutover.sh"; check "종료 코드" 0 $?
 check "B 의 P4 기록 (장부|누락|중복)" "62|0|0" "$(q B "SELECT rows_total||'|'||missing_rows||'|'||duplicate_rows FROM echo_ops.cutover_runs WHERE plan_id='$P4';")"
 
-echo "== 11. 롤백 뒤 ConfigMap 맞추기 실패 → 종료 2, 같은 명령을 다시 돌리면 맞추고 ALREADY_DONE"
+echo "== 10-1. 롤백 뒤 ConfigMap 맞추기 실패 → 종료 2, 같은 명령을 다시 돌리면 맞추고 ALREADY_DONE"
 Q1=99999999-9999-4999-8999-999999999999
 run env FAIL_CM=A PLAN_ID=$Q1 "$S/rollback.sh"; check "종료 코드" 2 $?
 check "쓰기 담당은 A 로 바뀜" A "$(writer)"
@@ -124,6 +127,60 @@ run env PLAN_ID=$Q1 "$S/rollback.sh"; check "다시 실행 → 종료 코드" 0 
 check "A ConfigMap 맞춰짐" echo-pg "$(cmhost A)"
 restart A; restart B
 check "재시작 뒤 writer_side" A "$(writer)"
+
+echo "== 11. (준비) P5 롤백으로 A 를 다시 쓰기 담당으로"
+run env PLAN_ID=$P5 "$S/rollback.sh" >/dev/null; check "종료 코드" 0 $?
+check "writer_side" A "$(writer)"
+
+echo "== 12. A 에 닿는데 promote.sh → 거부(종료 1)"
+run env PLAN_ID=$P6 "$S/promote.sh"; check "종료 코드" 1 $?
+check "B 상태 그대로" REPLICA "$(bstate)"
+
+echo "== 13. (재난 흉내) B 로 복제되기 전 A 에만 쓴 행 n=63, 그리고 A 정지"
+q B "ALTER SUBSCRIPTION echo_sub DISABLE;" >/dev/null
+q A "INSERT INTO demo.seq_write (n) VALUES (63);" >/dev/null
+docker stop echo-t-pg-a >/dev/null
+q B "ALTER SUBSCRIPTION echo_sub ENABLE;" >/dev/null
+check "B 상태" REPLICA "$(bstate)"
+
+echo "== 14. A 에 닿지 않는데 ALLOW_PROMOTE 없이 cutover.sh → 종료 1, 바뀐 것 없음"
+run env PLAN_ID=$P6 "$S/cutover.sh"; check "종료 코드" 1 $?
+check "B 상태 그대로" REPLICA "$(bstate)"
+
+echo "== 15. ALLOW_PROMOTE=true PLAN_ID=P6 cutover.sh → promote 로 넘어가 B 승격"
+run env ALLOW_PROMOTE=true PLAN_ID=$P6 "$S/cutover.sh"; check "종료 코드" 0 $?
+[[ $LAST_OUT == *"promote.sh"* ]] && ok "promote 분기 출력" || bad "promote 분기 출력 없음"
+check "B 상태" WRITER "$(bstate)"
+check "P6 기록 (kind|mode|rpo 있음)" "CUTOVER|PROMOTE|true" "$(q B "SELECT kind||'|'||mode||'|'||(rpo_estimate_ms IS NOT NULL) FROM echo_ops.cutover_runs WHERE plan_id='$P6';")"
+q B "INSERT INTO demo.seq_write (n, written_env) VALUES (64, 'gcp'), (65, 'gcp');" && ok "승격 뒤 B 에 쓰기 성공" || bad "B 쓰기 실패"
+check "승격 뒤 B ConfigMap 백엔드" echo-pg "$(cmhost B)"
+restart B
+check "B 재시작 뒤 상태" WRITER "$(bstate)"
+
+echo "== 16. 다시 실행 → 같은 계획은 ALREADY_DONE, 다른 계획은 ALREADY_WRITER"
+run env PLAN_ID=$P6 "$S/promote.sh"; check "종료 코드" 0 $?
+[[ $LAST_OUT == *ALREADY_DONE* ]] && ok "ALREADY_DONE 출력" || bad "ALREADY_DONE 출력 없음"
+run env PLAN_ID=$P7 "$S/promote.sh"; check "종료 코드" 0 $?
+[[ $LAST_OUT == *ALREADY_WRITER* ]] && ok "ALREADY_WRITER 출력" || bad "ALREADY_WRITER 출력 없음"
+
+echo "== 17. A 가 살아남 → resync-a.sh 로 A 를 B 의 사본으로"
+docker start echo-t-pg-a >/dev/null
+until docker exec echo-t-pg-a pg_isready -U postgres -d app >/dev/null 2>&1; do sleep 0.5; done; sleep 1
+run "$S/resync-a.sh"; check "종료 코드" 0 $?
+[[ $LAST_OUT == *"1건 (n: 63)"* ]] && ok "A 에만 있던 행 n=63 1건 보고" || bad "A 전용 행 보고 없음"
+check "writer_side" B "$(writer)"
+check "A 장부 = B 장부 (건수|max)" "$(q B "SELECT count(*)||'|'||max(n) FROM demo.seq_write;")" "$(q A "SELECT count(*)||'|'||max(n) FROM demo.seq_write;")"
+check "A 에 n=63 없음" 0 "$(q A "SELECT count(*) FROM demo.seq_write WHERE n = 63;")"
+q B "INSERT INTO demo.seq_write (n, written_env) VALUES (66, 'gcp');" >/dev/null
+wait_n A 66 && ok "B→A 복제 흐름" || bad "B→A 복제"
+check "다시 맞춘 뒤 A ConfigMap 백엔드" "$B_HOST" "$(cmhost A)"
+restart A; restart B
+check "재시작 뒤 writer_side" B "$(writer)"
+
+echo "== 18. PLAN_ID=P8 롤백 → A 복귀, 잃은 행이 누락 1건으로 드러남"
+run env PLAN_ID=$P8 "$S/rollback.sh"; check "종료 코드" 0 $?
+check "writer_side" A "$(writer)"
+check "P8 기록 (kind|누락|중복)" "ROLLBACK|1|0" "$(q A "SELECT kind||'|'||missing_rows||'|'||duplicate_rows FROM echo_ops.cutover_runs WHERE plan_id='$P8';")"
 
 echo; echo "결과: 통과 $pass · 실패 $fail"
 [[ $fail == 0 ]]

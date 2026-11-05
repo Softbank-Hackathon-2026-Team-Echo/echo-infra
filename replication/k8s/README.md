@@ -17,7 +17,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 |---|---|
 | `aws-tokyo/` | A: 네임스페이스·Postgres(TLS)·PgBouncer(emptyDir ini)·`30-expose.yaml`(NLB). `kustomization.yaml` 로 한 번에(`apply -k`), **클러스터 실제 상태와 같음**(11/4 `diff -k` 확인) |
 | `gcp-seoul/` | B: 같은 구성(처음부터 TLS·emptyDir ini 포함). PgBouncer 백엔드 자리표시 `__A_HOST__` |
-| `scripts/` | `subscribe.sh`(A→B 세우기) · `lag.sh` · `cutover.sh` · `rollback.sh` · `verify.sh`(누락·중복 대조) · `ops-table.sh`(컷오버 결과 표 `echo_ops.cutover_runs` 만들기, 인프라 7.2) · `writer.sh`(진입점 경유 쓰기 부하) · `rehearsal.sh`(한 번에: 대조→컷오버→대조→롤백→대조, `rehearsals/` 에 기록) · `common.sh` |
+| `scripts/` | `subscribe.sh`(A→B 세우기) · `lag.sh` · `cutover.sh` · `rollback.sh` · `promote.sh`(A 급사 시 B 승격) · `resync-a.sh`(승격 뒤 A 다시 맞추기) · `verify.sh`(누락·중복 대조) · `ops-table.sh`(컷오버 결과 표 `echo_ops.cutover_runs` 만들기, 인프라 7.2) · `writer.sh`(진입점 경유 쓰기 부하) · `rehearsal.sh`(한 번에: 대조→컷오버→대조→롤백→대조, `rehearsals/` 에 기록) · `common.sh` |
 
 ## 적용 순서 (사람이, 데스크톱에서 · 인프라 담당 확인 뒤)
 
@@ -86,7 +86,7 @@ scripts/verify.sh
 
 `PLAN_ID` 를 주면 결과 표 행의 `plan_id` 에 남는다(echo-was 가 시간 창 대신 계획으로 찾을 수 있게). 같은 `(plan_id, kind)` 는 한 번만 기록된다(고유 색인).
 
-로컬 시험: `scripts/tests/run.sh` (Docker 로 Postgres 두 대를 띄우고 `tests/bin/kubectl` 이 `kubectl exec` 를 넘긴다. 컷오버·롤백 한 바퀴 + 멱등 + 실패 처리 + 부분 상태 복구 + PgBouncer 재시작, 47개 확인).
+로컬 시험: `scripts/tests/run.sh` (Docker 로 Postgres 두 대를 띄우고 `tests/bin/kubectl` 이 `kubectl exec` 를 넘긴다. 컷오버·롤백 한 바퀴 + 멱등 + 실패 처리 + 부분 상태 복구 + PgBouncer 재시작 + 승격·다시 맞추기, 76개 확인).
 
 ### 부분 상태 복구
 
@@ -112,4 +112,4 @@ scripts/verify.sh
 - `FOR ALL TABLES` 발행이라도 **새 테이블은 B 에 DDL 을 먼저 넣고** `ALTER SUBSCRIPTION echo_sub REFRESH PUBLICATION`.
 - 복제되는 표의 키에 `bigserial` 을 쓰지 않는다: 논리 복제는 시퀀스를 넘기지 않아 반대쪽이 같은 번호를 다시 내면 키 충돌로 복제가 멈춘다(`echo_ops.cutover_runs` 는 uuid).
 - PgBouncer 가 1개여야 repoint 가 한 번에 끝난다(replicas 1 유지).
-- 재난(A 급사) 때는 롤백이 아니라 승격이다: B 에서 `ALTER SUBSCRIPTION echo_sub DISABLE` → B PgBouncer 를 `echo-pg` 로 repoint → RESUME. A 복구 뒤 `rollback.sh` 전에 재동기화가 필요하다(SPEC infra-8).
+- 재난(A 급사) 때는 롤백이 아니라 **승격**이다: `ALLOW_PROMOTE=true cutover.sh`(A 에 닿지 않으면 `promote.sh` 로 넘어감) 또는 `promote.sh`. A 에 닿으면 승격을 거부한다(쓰기 담당이 둘이 되지 않게). A 가 살아나면 `rollback.sh` 전에 `resync-a.sh` 로 A 를 B 의 사본으로 다시 맞춘다 — A 에만 있던 행은 이때 개수를 보고하고 지운다. 절차: `docs/design/롤백 절차서 (B→A).md` 5·6절(인프라 12.3, [#68](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-infra/issues/68)).

@@ -196,3 +196,22 @@ guard_on_error() {
     *)         exit "$rc" ;;
   esac
 }
+
+# ── 원본 장애 시 승격 (인프라 12.3, echo-infra#68) ───────────────────────────────────────────────
+# A Postgres 에 닿는가(최대 3회). 재난 때 EKS API 가 오래 매달리지 않게 요청 제한 시간을 둔다.
+a_reachable() { local i
+  for i in 1 2 3; do
+    kubectl --request-timeout=5s --context "$A_CTX" -n "$NS" exec -i echo-pg-0 -c postgres -- \
+      psql -X -U postgres -d app -tAc "SELECT 1" >/dev/null 2>&1 && return 0
+    [[ $i == 3 ]] || sleep 1
+  done
+  return 1
+}
+
+# A 를 보지 않고 B 만으로 본 상태: WRITER(B 가 쓰기 담당) · REPLICA(B 가 A 를 따라감) · PARTIAL(…)
+b_side_state() { local fwd be
+  fwd=$(sub_enabled B echo_sub); be=$(pgb_backend B)
+  if [[ $fwd == 0 && $be == "$B_LOCAL" ]]; then echo WRITER
+  elif [[ $fwd == 1 && $be != "$B_LOCAL" ]]; then echo REPLICA
+  else echo "PARTIAL(B echo_sub 켜짐=$fwd, B 백엔드=$be)"; fi
+}
