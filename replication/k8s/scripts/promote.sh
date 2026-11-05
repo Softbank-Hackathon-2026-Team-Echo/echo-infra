@@ -9,7 +9,8 @@
 # 잃었을 수 있는 범위: B 가 A 에서 마지막으로 받은 시각(없으면 장부 마지막 쓰기 시각)부터 PAUSE 까지를 rpo_estimate_ms 로 남긴다.
 #   A 가 죽은 뒤에는 A 에 쓸 수 없으므로 실제로 잃은 범위는 이 값보다 작거나 같다(상한).
 source "$(dirname "$0")/common.sh"
-trap guard_on_error ERR
+GUARD_SIDES=B   # A 에는 닿지 않는다
+guard_install
 plan_id_check
 if a_reachable && [[ ${FORCE_PROMOTE:-} != 1 ]]; then
   echo "[중단] A 에 닿는다 — 승격하지 않는다(쓰기 담당이 둘이 된다). 정상 컷오버는 cutover.sh 를 쓴다" >&2; exit 1

@@ -6,7 +6,7 @@
 #   종료 코드 0 끝남 · 1 바뀐 것 없음 · 2 부분 상태(common.sh guard_on_error).
 source "$(dirname "$0")/common.sh"
 : "${A_HOST:?A_HOST=<aws-tokyo/30-expose.yaml 의 NLB DNS>}"
-trap guard_on_error ERR
+guard_install
 plan_id_check
 ops_table_ensure   # 결과 표가 양쪽에 있는지(쓰기 정지 창 밖에서). 인프라 7.2
 preflight ROLLBACK B A   # 이미 A 가 쓰기 담당이거나 이 계획 기록이 있으면 여기서 끝(인프라 12.1)
