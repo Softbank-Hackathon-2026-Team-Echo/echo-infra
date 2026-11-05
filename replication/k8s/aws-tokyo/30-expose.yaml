@@ -6,7 +6,7 @@ kind: Service
 metadata:
   name: echo-pg-external
   namespace: echo-data
-  labels: { app: echo-pg, managed-by: dongok-manual }
+  labels: { app: echo-pg, managed-by: dongok-manual, echo/managed-by: dohyun-manual }  # 파일 = 동옥, 적용 = 도현(11/4)
   annotations:
     service.beta.kubernetes.io/aws-load-balancer-type: external
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip

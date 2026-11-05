@@ -2,18 +2,31 @@
 
 [SPEC infra-7](../../../specs/infra-7-postgres-logical-replication-cutover.md) · [ADR-0004](../../../docs/adr/[ADR-0004]%20데이터%20이전%20—%20PostgreSQL%20논리%20복제%20+%20PgBouncer%20컷오버.md)
 
-로컬 PoC(`replication/`)에서 검증한 메커니즘을 **실제 EKS(도쿄, `echo-dev-eks`)** 로 옮기는 첫 조각이다. 이번 범위는 **A 내부(ClusterIP)까지** — self-managed Postgres(publisher) + PgBouncer. B(서울) cross-cloud 연결·TLS·외부 노출은 다음 단계다.
+로컬 PoC(`replication/`)에서 검증한 메커니즘을 **실제 EKS(도쿄, `echo-dev-eks`)** 로 옮긴 것이다. self-managed Postgres(publisher) + PgBouncer + TLS + 서울(B)용 외부 노출 NLB.
 
-> ⚠️ **이 매니페스트는 아직 실제 클러스터에 apply 해 검증하지 않았다.** 검토·적용용 1차안이다. apply 는 사람이, 공유 EKS 변경이므로 인프라 담당(서동옥) 확인 뒤에 한다(CLAUDE.md).
+> **이 폴더 = 클러스터 실제 상태**(2026-11-04, `kubectl diff -k` 빈 출력 확인). 클러스터를 손으로 patch 하지 말고 이 파일을 고친 뒤 `apply -k` 한다. 공유 EKS 변경이므로 인프라 담당(서동옥)에게 알린다(CLAUDE.md).
 
 ## 무엇이 들어있나
 
 | 파일 | 내용 |
 |---|---|
+| `kustomization.yaml` | 아래 매니페스트 묶음. `apply -k` 한 줄로 A 전체 |
 | `00-namespace.yaml` | `echo-data` 네임스페이스(이전 엔진 데이터 전용) |
 | `secret.example.yaml` | **예시**. 실제 Secret 은 손으로 만든다(저장소에 비밀값 0건, NFR-17) |
-| `10-postgres.yaml` | Postgres StatefulSet(`wal_level=logical`) + 헤드리스 Service + 초기화(계정·`echo_pub` 발행) |
-| `20-pgbouncer.yaml` | PgBouncer Deployment + Service(앱 접속구 `echo-pgbouncer:6432`) + scram/auth_query 설정 |
+| `10-postgres.yaml` | Postgres StatefulSet(`wal_level=logical`, `ssl=on`) + 헤드리스 Service + 초기화(계정·`echo_pub` 발행) |
+| `20-pgbouncer.yaml` | PgBouncer Deployment(ini = emptyDir, `v1.26.1-p0`) + Service(앱 접속구 `echo-pgbouncer:6432`) + scram/auth_query 설정 |
+| `30-expose.yaml` | 외부 노출 NLB `echo-dev-pg-a`(GCP NAT `34.64.211.218/32` 만) |
+| `40-tls.md` | TLS 인증서 Secret 만드는 법 · 지금 인증서 만료일 |
+
+### 손으로 만든 것 (코드에 없음)
+
+| 자원 | 만드는 법 | 비고 |
+|---|---|---|
+| Secret `echo-pg-secret` | 아래 적용 절차 | 키 5개(`POSTGRES_PASSWORD`·`APP_PASSWORD`·`REPL_PASSWORD`·`PGB_AUTH_PASSWORD`·`userlist.txt`). B 에 같은 값 복사(`../README.md` 2단계) → **A 에서 바꾸면 B 도 같이** |
+| Secret `echo-pg-tls` | `40-tls.md` | 자체 서명, 만료 2027-11-04 |
+
+- 둘 다 라벨 `echo/managed-by=dohyun-manual`.
+- DB 안의 계정·발행은 `echo-pg-init` 이 **빈 PVC 첫 기동에서 한 번만** 만든다. 이미 뜬 DB 에는 init 을 고쳐도 반영되지 않으니 SQL 로 따로 바꾼다.
 
 ## PoC 와 달라진 점 (실제 배포로 옮기며)
 
@@ -39,10 +52,12 @@ kubectl create secret generic echo-pg-secret -n echo-data \
   --from-literal=REPL_PASSWORD="$REPL" \
   --from-literal=PGB_AUTH_PASSWORD="$PGB" \
   --from-literal=userlist.txt="\"pgbouncer_auth\" \"$PGB\""
+kubectl -n echo-data label secret echo-pg-secret echo/managed-by=dohyun-manual
 
-kubectl apply -f 10-postgres.yaml
+# TLS 인증서 Secret: 40-tls.md
+
+kubectl apply -k .
 kubectl -n echo-data rollout status statefulset/echo-pg
-kubectl apply -f 20-pgbouncer.yaml
 kubectl -n echo-data rollout status deploy/echo-pgbouncer
 ```
 

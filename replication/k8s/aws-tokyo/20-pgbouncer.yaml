@@ -1,6 +1,8 @@
 # PgBouncer — 앱과 A Postgres 사이. 컷오버는 이 백엔드를 A→B 로 바꿔 이뤄진다(#7).
 # 인증은 scram + auth_query: pgbouncer 가 pgbouncer_auth 로 붙어 pg_shadow 를 조회한다.
 # (로컬 PoC 의 trust 를 실제 배포용 scram 으로 바꾼 것)
+# ini 는 emptyDir(초기값 = ConfigMap, initContainer 가 복사). 컷오버 스크립트가 `sed -i` + `RELOAD` 로 백엔드를 즉시 바꾼다.
+# ConfigMap subPath 마운트는 읽기 전용이고 ConfigMap 수정은 반영까지 최대 1분이라 컷오버 창에 못 쓴다.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -23,6 +25,8 @@ data:
     pool_mode = transaction
     max_client_conn = 500
     default_pool_size = 25
+    # 컷오버 뒤 백엔드가 B(인터넷 LB)로 바뀌므로 서버 쪽 연결도 TLS 를 강제한다(gcp-seoul 과 같음, #32)
+    server_tls_sslmode = require
 ---
 apiVersion: v1
 kind: Service
@@ -51,13 +55,20 @@ spec:
     metadata:
       labels: { app: echo-pgbouncer }
     spec:
+      initContainers:
+        - name: copy-ini
+          image: busybox:1.37
+          command: ["sh", "-c", "cp /seed/pgbouncer.ini /etc/pgbouncer/pgbouncer.ini"]
+          volumeMounts:
+            - { name: seed, mountPath: /seed }
+            - { name: conf, mountPath: /etc/pgbouncer }
       containers:
         - name: pgbouncer
-          image: edoburu/pgbouncer:latest   # TODO: 버전·digest 고정(PoC 와 동일 이미지)
+          image: edoburu/pgbouncer:v1.26.1-p0   # B(gcp-seoul) 와 같은 버전. TODO: digest 고정
           ports:
             - { name: pgbouncer, containerPort: 6432 }
           volumeMounts:
-            - { name: ini, mountPath: /etc/pgbouncer/pgbouncer.ini, subPath: pgbouncer.ini }
+            - { name: conf, mountPath: /etc/pgbouncer }
             - { name: userlist, mountPath: /etc/pgbouncer/userlist.txt, subPath: userlist.txt }
           readinessProbe:
             tcpSocket: { port: 6432 }
@@ -67,8 +78,10 @@ spec:
             requests: { cpu: "50m", memory: "64Mi" }
             limits: { memory: "128Mi" }
       volumes:
-        - name: ini
+        - name: seed
           configMap: { name: echo-pgbouncer-ini }
+        - name: conf
+          emptyDir: {}
         - name: userlist
           secret:
             secretName: echo-pg-secret

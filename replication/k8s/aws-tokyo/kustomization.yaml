@@ -1,0 +1,10 @@
+# 도쿄 A 전체를 한 번에: kubectl --context echo-dev-eks apply -k replication/k8s/aws-tokyo
+# 먼저 손으로 만들 것: Secret echo-pg-secret(README) · echo-pg-tls(40-tls.md). 값은 저장소에 두지 않는다(NFR-17).
+# 바꾸기 전 확인: kubectl --context echo-dev-eks diff -k replication/k8s/aws-tokyo → 빈 출력이면 코드 = 클러스터.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - 00-namespace.yaml
+  - 10-postgres.yaml
+  - 20-pgbouncer.yaml
+  - 30-expose.yaml
