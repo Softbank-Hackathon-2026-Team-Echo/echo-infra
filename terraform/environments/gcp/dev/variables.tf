@@ -56,9 +56,9 @@ variable "master_cidr" {
 # GKE
 
 variable "gke_release_channel" {
-  description = "GKE 릴리스 채널. 본선 기간에는 바꾸지 않는다"
+  description = "GKE 릴리스 채널. 11/5 CVE-2026-98432(노드 커널) 수정 버전 1.36.5-gke.1982000 이 RAPID 에만 있어 RAPID 로 올렸다(보안 담당 적용). 본선 뒤 REGULAR 로 되돌릴지 정한다"
   type        = string
-  default     = "REGULAR"
+  default     = "RAPID"
 }
 
 variable "gke_public_access_cidrs" {
