@@ -3,6 +3,11 @@ output "instance_id" {
   value       = aws_instance.host.id
 }
 
+output "public_ip" {
+  description = "온프레 시연 기기의 고정 공인 IP(EIP). 진입점 9090 방화벽(GCP dev 루트 entrypoint_remote_write_cidrs)의 원본"
+  value       = aws_eip.host.public_ip
+}
+
 output "region" {
   description = "기기 리전"
   value       = var.region

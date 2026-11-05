@@ -112,3 +112,20 @@ resource "aws_instance" "host" {
     ignore_changes = [ami]
   }
 }
+
+# ---------- 고정 공인 IP (인프라 9) ----------
+# 진입점 Prometheus remote write(9090) 방화벽이 이 IP/32 만 연다(GCP dev 루트 entrypoint_remote_write_cidrs).
+# 자동 할당 IP 는 기기를 멈췄다 켜면 바뀌어 9090 이 막히므로 EIP 로 고정한다. 들어오는 규칙은 그대로 0개다.
+# associate_public_ip_address 는 바꾸지 않는다(바꾸면 기기를 다시 만든다). 연결하면 자동 IP 는 EIP 로 바뀐다.
+resource "aws_eip" "host" {
+  domain = "vpc"
+
+  tags = {
+    Name = local.name
+  }
+}
+
+resource "aws_eip_association" "host" {
+  instance_id   = aws_instance.host.id
+  allocation_id = aws_eip.host.id
+}
