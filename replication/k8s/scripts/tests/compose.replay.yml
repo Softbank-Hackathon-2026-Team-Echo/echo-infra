@@ -1,0 +1,21 @@
+# replay-test.sh 전용(인프라 12.4): 진입점 compose + 시험용 Postgres 두 대(docker-compose.yml) 위에 시연 앱 두 개를 얹는다.
+# app_a = 도쿄 앱(Postgres A), app_b = 서울 앱(Postgres B). 둘 다 멱등 쓰기를 켠다. 앱 소스는 DEMO_APP_DIR(echo-demo-app).
+x-app: &app
+  build: ${DEMO_APP_DIR:?DEMO_APP_DIR 에 echo-demo-app 경로}
+  image: echo-demo-app:replay-test
+  restart: unless-stopped
+services:
+  app_a:
+    <<: *app
+    environment:
+      DATABASE_URL: postgresql://postgres@echo-t-pg-a:5432/app
+      ECHO_ENVIRONMENT: aws-tokyo
+      IDEMPOTENT_WRITES: "true"
+  app_b:
+    <<: *app
+    environment:
+      DATABASE_URL: postgresql://postgres@echo-t-pg-b:5432/app
+      ECHO_ENVIRONMENT: gcp-seoul
+      IDEMPOTENT_WRITES: "true"
+    ports:
+      - "18090:8080"   # replay.sh 가 서울 앱에 직접 보낸다(진입점을 거치지 않음)

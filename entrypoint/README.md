@@ -79,6 +79,22 @@ docker compose down             # -v 를 붙이면 가중치·측정 데이터�
 
 Prometheus 는 5초마다 긁고 7일 보관. 접근 로그는 JSON 으로 stdout (`docker compose logs envoy`): 요청마다 `upstream_cluster`·`upstream_host`·`duration_ms`·`flags`.
 
+## 요청 기록 (인프라 12.4, 기본 꺼짐)
+
+도쿄 원본이 응답 없이 죽으면 서울로 아직 복제되지 않은 쓰기를 잃는다. 진입점이 쓰기 요청을 최근 15분만 기록해 두었다가, 서울 승격 직후 다시 보낸다(`replication/k8s/scripts/promote-with-replay.sh`, [SPEC](../specs/infra-12.4-request-journal.md)).
+
+```text
+클라이언트 ─▶ Envoy ─ ext_authz ─▶ journal(:8081, 도커 네트워크 안) — 쓰기만 SQLite 에 기록 → 허용 / hold 면 429
+                    └ router ───▶ 업스트림(지금과 같음)
+운영자·스크립트 ─▶ journal 관리(:8082, 토큰) — /status · /hold · /release · /entries
+```
+
+- 켜기(둘 다 필요): `.env` 에 `JOURNAL_ENABLED=true`·`JOURNAL_TOKEN` → `docker compose up -d journal`, Envoy 런타임 `curl -X POST '127.0.0.1:9901/runtime_modify?journal.enabled=100'`(Envoy 재시작하면 다시 0)
+- 끄기: `runtime_modify?journal.enabled=0` — 기록·hold 모두 멈추고 지금과 같아진다
+- journal 이 죽거나 느리면(0.5초) 쓰기는 통과한다(`failure_mode_allow`). 그동안의 쓰기는 기록되지 않는다
+- 확인 포트 8081 은 밖에 열지 않는다: 열면 누구나 가짜 쓰기를 기록에 넣고 재생 때 서울 DB 에 들어간다
+- 시험: `python -m unittest entrypoint/journal/test_app.py` · `entrypoint/journal/tests/envoy-test.sh`
+
 ## GCP VM (Terraform)
 
 `terraform/environments/gcp/dev/entrypoint.tf` 가 고정 IP + e2-small(Debian 12) + 방화벽 + 서비스 계정 + Secret Manager 껍데기를 만든다. startup 스크립트가 이 디렉터리의 파일을 `/opt/entrypoint` 에 쓰고 `docker compose up -d --build` 한다.

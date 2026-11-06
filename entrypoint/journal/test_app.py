@@ -132,6 +132,18 @@ class JournalTest(unittest.TestCase):
         self.assertEqual(self.call("POST", "/check/api/writes", b"{}", base=self.admin_base, token=True)[0], 404)
         self.assertEqual(self.entries(), [])
 
+    def test_entries_tsv_for_replay(self):
+        self.call("POST", "/check/api/writes", b"{}", {"Idempotency-Key": "k-1", "Content-Type": "application/json"})
+        self.call("DELETE", "/check/api/x")
+        req = urllib.request.Request(
+            self.admin_base + "/entries?since=0&format=tsv", headers={"Authorization": f"Bearer {TOKEN}"}
+        )
+        with urllib.request.urlopen(req, timeout=5) as r:
+            lines = r.read().decode().splitlines()
+        a, b = (line.split("\t") for line in lines)
+        self.assertEqual(a[1:], ["POST", "/api/writes", "k-1", "application/json", base64.b64encode(b"{}").decode(), "0"])
+        self.assertEqual(b[1:], ["DELETE", "/api/x", "-", "-", "-", "0"])
+
     def test_status_counts(self):
         self.call("POST", "/check/api/writes", b"{}")
         s = self.call("GET", "/status", token=True)[2]

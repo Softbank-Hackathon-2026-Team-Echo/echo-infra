@@ -13,7 +13,7 @@ Envoy ext_authz(HTTP)가 요청마다 부른다. 쓰기(POST·PUT·PATCH·DELETE
   GET  /status           기록 수·가장 오래된·새 시각·hold 여부
   POST /hold             쓰기 막기 켜기 (재생 중 새 쓰기가 먼저 들어가지 않게). 다시 불러도 같다
   POST /release          쓰기 막기 끄기
-  GET  /entries?since=   since(UNIX 초) 이후 기록을 받은 순서대로 (본문 base64)
+  GET  /entries?since=   since(UNIX 초) 이후 기록을 받은 순서대로 (본문 base64). &format=tsv 면 한 줄 한 기록(replay.sh)
 
 환경 변수
   JOURNAL_TOKEN              관리 경로 Bearer 토큰 (비어 있으면 관리 경로는 503)
@@ -237,7 +237,24 @@ class Handler(BaseHTTPRequestHandler):
                 since = float(q.get("since", ["0"])[0])
             except ValueError:
                 return self._send(400, {"error": "since 는 UNIX 초"})
-            return self._send(200, {"entries": entries(DB, since)})
+            rows = entries(DB, since)
+            if q.get("format", [""])[0] == "tsv":
+                # replay.sh 용: bash·curl·base64 만으로 읽게 한 줄 한 기록(빈 값은 -). 경로·키에는 탭이 없다.
+                lines = [
+                    "\t".join([
+                        str(e["id"]), e["method"], e["path"], e["requestId"] or "-",
+                        e["contentType"] or "-", e["body"] or "-", "1" if e["truncated"] else "0",
+                    ])
+                    for e in rows
+                ]
+                data = ("\n".join(lines) + ("\n" if lines else "")).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/tab-separated-values")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return None
+            return self._send(200, {"entries": rows})
         return self._send(404, {"error": "not found"})
 
     do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = _route
