@@ -50,3 +50,33 @@ variable "vm_running" {
   type        = bool
   default     = true
 }
+
+variable "testdb_psa_cidr" {
+  description = "테스트 DB(Cloud SQL) 사설 IP 예약 대역. 서브넷·대역 표(contracts/aws-outputs.md)와 겹치지 않게 둔다"
+  type        = string
+  default     = "10.71.0.0/24"
+}
+
+variable "testdb_tier" {
+  description = "테스트 DB 크기(Enterprise 공유 코어). 수정안 검증 시험 한두 개를 돌리는 정도"
+  type        = string
+  default     = "db-g1-small"
+}
+
+variable "testdb_name" {
+  description = "테스트 DB 이름"
+  type        = string
+  default     = "sandbox_test"
+}
+
+variable "testdb_user" {
+  description = "테스트 DB 사용자(시험이 스키마를 지우고 다시 만든다)"
+  type        = string
+  default     = "sandbox_tester"
+}
+
+variable "testdb_password_version" {
+  description = "올리면 apply 때 비밀번호를 새로 만들어 DB 사용자와 비밀(test-database-url)을 함께 바꾼다"
+  type        = number
+  default     = 1
+}

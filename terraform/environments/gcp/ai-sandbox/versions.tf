@@ -9,6 +9,11 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 8.9.0"
     }
+    # 테스트 DB 비밀번호(ephemeral, state 에 남지 않음)
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.7"
+    }
   }
 }
 
