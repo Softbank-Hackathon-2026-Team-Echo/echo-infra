@@ -27,3 +27,18 @@ output "runner_secret_ids" {
   description = "러너가 읽는 비밀(값은 사람이 넣는다): 이름 → secret_id"
   value       = { for name, secret in google_secret_manager_secret.runner : name => secret.secret_id }
 }
+
+output "testdb_instance" {
+  description = "AI 검증용 테스트 DB(Cloud SQL, 운영 DB 와 별개)"
+  value       = google_sql_database_instance.testdb.name
+}
+
+output "testdb_private_ip" {
+  description = "테스트 DB 사설 IP(샌드박스 VPC 에서만 닿는다). 접속 문자열은 비밀 test-database-url"
+  value       = google_sql_database_instance.testdb.private_ip_address
+}
+
+output "model_region" {
+  description = "러너가 Claude 를 부르는 Vertex AI 리전(AnthropicVertex(region=..., project_id=...))"
+  value       = var.region
+}
