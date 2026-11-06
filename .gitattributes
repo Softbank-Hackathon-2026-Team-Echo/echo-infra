@@ -1,3 +1,7 @@
 # 컨테이너(컷오버 Job)·리눅스에서 그대로 실행하는 셸 스크립트는 Windows 체크아웃에서도 LF 로 둔다(CRLF 면 bash 가 실패).
 *.sh text eol=lf
 replication/k8s/scripts/tests/bin/* text eol=lf
+# 진입점 VM 으로 가는 파일(Terraform 이 시작 스크립트 메타데이터에 그대로 싣는다)도 LF 로 둔다.
+# 11/6: Windows 체크아웃(core.autocrlf=true)의 CRLF 가 실려 시작 스크립트가 `bash\r` 로 실패했다.
+*.tftpl text eol=lf
+entrypoint/** text eol=lf
