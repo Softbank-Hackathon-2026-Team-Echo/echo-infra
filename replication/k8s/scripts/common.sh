@@ -186,13 +186,27 @@ preflight() {
 # - paused: PAUSE 했지만 아직 아무것도 바꾸지 않음 → 양쪽 RESUME, 쓰기 담당 그대로(1)
 # - switching: 구독·백엔드를 바꾸는 중 → 옛 쪽에 쓰면 복제되지 않으므로 RESUME 하지 않고 멈춘다(2)
 GUARD_PHASE=precheck
+# GUARD_SIDES = 쓰기 정지 중 실패 때 RESUME 할 쪽(promote.sh 는 A 에 닿지 않으므로 B 만).
+GUARD_SIDES="A B"
 guard_on_error() {
   local rc=$?; trap - ERR
+  guard_stop "실패(rc=$rc)" "$rc"
+}
+# 컷오버 Job 이 제한 시간·파드 종료로 SIGTERM 을 받거나 사람이 Ctrl-C 를 누를 때(#67 서동옥 리뷰).
+# 쓰기 정지 중이면 RESUME 하고 끝낸다. SIGKILL·노드 유실은 잡을 수 없다 → README '부분 상태 복구'.
+guard_on_signal() {
+  trap - ERR TERM INT HUP
+  guard_stop "신호를 받아 중단" 143
+}
+guard_install() { trap guard_on_error ERR; trap guard_on_signal TERM INT HUP; }
+guard_stop() {
+  local why=$1 rc=$2 s
   case $GUARD_PHASE in
-    precheck)  echo "[중단] 시작 전 확인 실패(rc=$rc) — 바뀐 것 없음" >&2; exit 1 ;;
-    paused)    echo "[중단] 쓰기 정지 중 실패(rc=$rc) — 쓰기 담당 그대로, 양쪽 RESUME" >&2
-               pgb A "RESUME app;" >/dev/null 2>&1 || true; pgb B "RESUME app;" >/dev/null 2>&1 || true; exit 1 ;;
-    switching) echo "[중단] 전환 도중 실패(rc=$rc) — 부분 상태. PgBouncer 는 PAUSE 로 둔다. replication/k8s/README.md '부분 상태 복구'를 따른다" >&2; exit 2 ;;
+    precheck)  echo "[중단] 시작 전 확인 중 $why — 바뀐 것 없음" >&2; exit 1 ;;
+    paused)    echo "[중단] 쓰기 정지 중 $why — 쓰기 담당 그대로, RESUME ($GUARD_SIDES)" >&2
+               for s in $GUARD_SIDES; do pgb "$s" "RESUME app;" >/dev/null 2>&1 || true; done; exit 1 ;;
+    # 전환 도중에는 RESUME 하지 않는다: 구독은 바뀌었는데 백엔드가 옛 쪽이면, 재개된 쓰기가 복제되지 않는 쪽에 쌓여 갈라진다.
+    switching) echo "[중단] 전환 도중 $why — 부분 상태. PgBouncer 는 PAUSE 로 둔다. replication/k8s/README.md '부분 상태 복구'를 따른다" >&2; exit 2 ;;
     *)         exit "$rc" ;;
   esac
 }

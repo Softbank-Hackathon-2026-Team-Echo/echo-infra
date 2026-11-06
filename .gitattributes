@@ -1,0 +1,3 @@
+# 컨테이너(컷오버 Job)·리눅스에서 그대로 실행하는 셸 스크립트는 Windows 체크아웃에서도 LF 로 둔다(CRLF 면 bash 가 실패).
+*.sh text eol=lf
+replication/k8s/scripts/tests/bin/* text eol=lf

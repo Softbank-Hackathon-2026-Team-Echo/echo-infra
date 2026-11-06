@@ -1,0 +1,112 @@
+# B(서울 GKE)에만: 컷오버 Job 이 도는 네임스페이스, Job 신원(KSA), echo-was 가 Job 을 만들고 읽는 권한, Job 모양을 고정하는 VAP.
+# 자리 표시 두 개는 README "적용"의 명령이 채운다:
+#   __CUTOVER_GSA__   = terraform gcp/dev output cutover_service_account_email (Workload Identity 로 Google ID 토큰을 받는다)
+#   __CUTOVER_IMAGE__ = Artifact Registry 의 컷오버 이미지, 반드시 @sha256 digest
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: echo-ops
+  labels: { app.kubernetes.io/part-of: echo-cutover }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: echo-cutover
+  namespace: echo-ops
+  labels: { app.kubernetes.io/part-of: echo-cutover }
+  annotations:
+    iam.gke.io/gcp-service-account: __CUTOVER_GSA__
+---
+# echo-was(관제탑, KSA echo-was/echo-was)는 echo-ops 에서 Job 을 만들고 상태·로그만 읽는다. 파드를 직접 만들지 않는다.
+# 참고: 지금 관제탑 GSA 는 프로젝트 단위 container.developer 라 이 Role 이 실제 경계는 아니다 → 실제 경계는 아래 VAP(보안 #24 후속).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: echo-was-cutover-jobs
+  namespace: echo-ops
+  labels: { app.kubernetes.io/part-of: echo-cutover }
+rules:
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [create, get, list, watch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: echo-was-cutover-jobs
+  namespace: echo-ops
+  labels: { app.kubernetes.io/part-of: echo-cutover }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: echo-was-cutover-jobs }
+subjects:
+  - kind: ServiceAccount
+    name: echo-was
+    namespace: echo-was
+---
+# echo-ops 의 Job·Pod 모양을 고정한다(보안 #24, 김형래 11/5 리뷰 3번). 누가 만들든(echo-was·사람·Job 컨트롤러) 같은 규칙.
+#  - SA = echo-cutover, 컨테이너 1개(init·ephemeral 없음), 이미지 = 고정 digest, command·args 덮어쓰기 없음(이미지 ENTRYPOINT)
+#  - 환경 변수는 PLAN_ID·KIND·ALLOW_PROMOTE 만, 값만(valueFrom·envFrom 없음). KIND 3종, ALLOW_PROMOTE true|false, PLAN_ID uuid
+#  - volume 은 쿠버네티스가 넣는 SA 토큰(kube-api-access-*, projected)만. hostPath·host 네임스페이스·privileged 금지
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: echo-cutover-job-template
+  labels: { app.kubernetes.io/part-of: echo-cutover }
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: echo-ops }
+    resourceRules:
+      - apiGroups: [batch]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [jobs]
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE]
+        resources: [pods]
+  variables:
+    - name: pod
+      expression: "object.kind == 'Job' ? object.spec.template.spec : object.spec"
+    - name: c
+      expression: "variables.pod.containers[0]"
+    - name: env
+      expression: "has(variables.c.env) ? variables.c.env : []"
+  validations:
+    - expression: "has(variables.pod.serviceAccountName) && variables.pod.serviceAccountName == 'echo-cutover'"
+      message: "serviceAccountName 은 echo-cutover 여야 한다"
+    - expression: "size(variables.pod.containers) == 1 && (!has(variables.pod.initContainers) || size(variables.pod.initContainers) == 0) && (!has(variables.pod.ephemeralContainers) || size(variables.pod.ephemeralContainers) == 0)"
+      message: "컨테이너는 하나만(init·ephemeral 없음)"
+    - expression: "variables.c.image == '__CUTOVER_IMAGE__'"
+      message: "이미지는 고정된 컷오버 이미지 digest 여야 한다"
+    - expression: "!has(variables.c.command) && !has(variables.c.args)"
+      message: "command·args 를 덮어쓸 수 없다(이미지 ENTRYPOINT 만)"
+    - expression: "!has(variables.c.envFrom) && variables.env.all(e, e.name in ['PLAN_ID', 'KIND', 'ALLOW_PROMOTE'] && !has(e.valueFrom) && has(e.value))"
+      message: "환경 변수는 PLAN_ID·KIND·ALLOW_PROMOTE 값만"
+    - expression: "variables.env.exists(e, e.name == 'KIND' && e.value in ['cutover', 'rollback', 'promote'])"
+      message: "KIND 는 cutover·rollback·promote 중 하나"
+    - expression: "variables.env.all(e, e.name != 'ALLOW_PROMOTE' || e.value in ['true', 'false'])"
+      message: "ALLOW_PROMOTE 는 true·false"
+    - expression: "variables.env.all(e, e.name != 'PLAN_ID' || e.value.matches('^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'))"
+      message: "PLAN_ID 는 소문자 uuid"
+    - expression: "!has(variables.pod.volumes) || variables.pod.volumes.all(v, v.name.startsWith('kube-api-access-') && has(v.projected))"
+      message: "volume 은 SA 토큰(kube-api-access-*)만"
+    - expression: "!(has(variables.pod.hostNetwork) && variables.pod.hostNetwork) && !(has(variables.pod.hostPID) && variables.pod.hostPID) && !(has(variables.pod.hostIPC) && variables.pod.hostIPC)"
+      message: "host 네트워크·PID·IPC 금지"
+    - expression: "!has(variables.c.securityContext) || !has(variables.c.securityContext.privileged) || !variables.c.securityContext.privileged"
+      message: "privileged 금지"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: echo-cutover-job-template
+  labels: { app.kubernetes.io/part-of: echo-cutover }
+spec:
+  policyName: echo-cutover-job-template
+  validationActions: [Deny]

@@ -128,6 +128,17 @@ check "A ConfigMap 맞춰짐" echo-pg "$(cmhost A)"
 restart A; restart B
 check "재시작 뒤 writer_side" A "$(writer)"
 
+echo "== 10-2. 쓰기 정지 중 SIGTERM(Job 제한 시간·파드 종료) → 양쪽 RESUME, 종료 1, 쓰기 담당 그대로"
+: > "$STATE/pgb.log"
+Q2=88888888-0000-4000-8000-000000000002
+SLOW_SQL='setval' PLAN_ID=$Q2 "$S/cutover.sh" > "$STATE/sig.out" 2>&1 & bg=$!
+for i in $(seq 1 100); do grep -q 'B PAUSE' "$STATE/pgb.log" 2>/dev/null && break; sleep 0.1; done
+sleep 1; kill -TERM $bg; wait $bg; rc=$?
+sed 's/^/     │ /' "$STATE/sig.out"
+check "종료 코드" 1 $rc
+check "RESUME 2회" 2 "$(grep -c RESUME "$STATE/pgb.log")"
+check "writer_side" A "$(writer)"
+
 echo "== 11. (준비) P5 롤백으로 A 를 다시 쓰기 담당으로"
 run env PLAN_ID=$P5 "$S/rollback.sh" >/dev/null; check "종료 코드" 0 $?
 check "writer_side" A "$(writer)"

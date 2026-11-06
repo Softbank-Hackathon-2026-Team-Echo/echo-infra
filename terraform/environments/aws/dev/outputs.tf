@@ -42,3 +42,8 @@ output "executor_role_arn" {
   description = "배포 실행기(GKE 위 echo-was 일꾼)가 Google ID 토큰으로 받는 역할. EKS 접근용"
   value       = aws_iam_role.executor.arn
 }
+
+output "cutover_role_arn" {
+  description = "컷오버 Job 이 받는 AWS 역할. 컷오버 이미지 빌드 인자 AWS_ROLE_ARN (replication/cutover-job/README.md). cutover_google_service_account_id 가 비면 null"
+  value       = try(aws_iam_role.cutover[0].arn, null)
+}

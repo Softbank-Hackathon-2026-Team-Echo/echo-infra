@@ -9,7 +9,7 @@
 #   A 에 닿지 않을 때: ALLOW_PROMOTE=true 면 promote.sh 로 넘어가고(재난 긴급 이전 전용), 아니면 종료 1.
 source "$(dirname "$0")/common.sh"
 : "${B_HOST:?B_HOST=<gcp-seoul/30-expose.yaml 의 EXTERNAL-IP>}"
-trap guard_on_error ERR
+guard_install
 plan_id_check
 # A 에 닿지 않으면(재난) 정상 컷오버를 할 수 없다. ALLOW_PROMOTE=true 일 때만 승격으로 넘어간다(인프라 12.3).
 if ! a_reachable; then

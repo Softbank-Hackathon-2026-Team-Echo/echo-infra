@@ -29,6 +29,10 @@ while [[ $# -gt 0 ]]; do
 done
 [[ $ctx == "$A_CTX" ]] && side=A || side=B
 cmd=("$@")
+# SLOW_SQL(정규식)에 맞는 인자가 있으면 SLOW_SEC(기본 6)초 기다린 뒤 실행한다(신호 처리 시험용).
+if [[ -n ${SLOW_SQL:-} ]]; then
+  for a in "${cmd[@]}"; do [[ $a =~ $SLOW_SQL ]] && { sleep "${SLOW_SEC:-6}"; break; }; done
+fi
 if [[ -n ${FAIL_SQL:-} ]]; then
   for a in "${cmd[@]}"; do [[ $a =~ $FAIL_SQL ]] && { echo "[fake kubectl] FAIL_SQL 로 실패: $FAIL_SQL" >&2; exit 1; }; done
 fi

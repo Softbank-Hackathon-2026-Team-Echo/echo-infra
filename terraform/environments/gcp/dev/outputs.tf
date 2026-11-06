@@ -125,3 +125,14 @@ output "control_plane_secret_ids" {
   description = "값을 추가한 뒤 SecretSync 로 echo-was 파드에 전달할 Secret Manager ID"
   value       = { for key, secret in google_secret_manager_secret.control_plane : key => secret.secret_id }
 }
+
+# ---------- 컷오버 Job (cutover.tf, 인프라 12.2) ----------
+output "cutover_service_account" {
+  description = "컷오버 Job KSA(echo-ops/echo-cutover)의 iam.gke.io/gcp-service-account annotation 값 (replication/cutover-job/manifests/echo-ops.yaml)"
+  value       = google_service_account.cutover.email
+}
+
+output "cutover_service_account_unique_id" {
+  description = "컷오버 GSA 의 uniqueId. AWS 루트 변수 cutover_google_service_account_id 에 넣는다"
+  value       = google_service_account.cutover.unique_id
+}
