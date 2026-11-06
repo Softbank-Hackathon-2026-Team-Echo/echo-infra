@@ -91,6 +91,9 @@ Prometheus 는 5초마다 긁고 7일 보관. 접근 로그는 JSON 으로 stdou
 
 - 켜기(둘 다 필요): `.env` 에 `JOURNAL_ENABLED=true`·`JOURNAL_TOKEN` → `docker compose up -d journal`, Envoy 런타임 `curl -X POST '127.0.0.1:9901/runtime_modify?journal.enabled=100'`(Envoy 재시작하면 다시 0)
 - 끄기: `runtime_modify?journal.enabled=0` — 기록·hold 모두 멈추고 지금과 같아진다
+- VM: `entrypoint_journal_enabled = true`(주 진입점만, 보조는 늘 꺼짐) → apply → `sudo google_metadata_script_runner startup`. 관리 토큰은 시작 스크립트가 만들어 Secret Manager `echo-dev-entry-journal-token` 에 둔다
+- 관리 API(:8082)는 방화벽으로 열지 않는다. IAP SSH 터널로 쓴다:
+  `gcloud compute ssh echo-dev-entry --zone <zone> --tunnel-through-iap -- -N -L 8082:127.0.0.1:8082 -L 9901:127.0.0.1:9901` → `JOURNAL_URL=http://127.0.0.1:8082`
 - journal 이 죽거나 느리면(0.5초) 쓰기는 통과한다(`failure_mode_allow`). 그동안의 쓰기는 기록되지 않는다
 - 확인 포트 8081 은 밖에 열지 않는다: 열면 누구나 가짜 쓰기를 기록에 넣고 재생 때 서울 DB 에 들어간다
 - 시험: `python -m unittest entrypoint/journal/test_app.py` · `entrypoint/journal/tests/envoy-test.sh`

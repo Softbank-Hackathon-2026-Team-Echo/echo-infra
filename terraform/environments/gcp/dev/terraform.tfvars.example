@@ -14,6 +14,9 @@ gke_admin_members = [
 # entrypoint_prometheus_remote_write = true
 # entrypoint_remote_write_cidrs      = ["<온프레 EC2 공인 IP>/32"]   # 9090 만 연다
 
+# 인프라 12.4: 주 진입점 요청 기록(journal). 기본 false. 켜도 Envoy 필터는 꺼진 채 뜬다(README "요청 기록")
+# entrypoint_journal_enabled = true
+
 # 결제 계정 관리자만 만들 수 있다. 아니면 비워 두고 콘솔 예산을 쓴다.
 # billing_account            = "XXXXXX-XXXXXX-XXXXXX"
 # budget_limit_usd           = 150

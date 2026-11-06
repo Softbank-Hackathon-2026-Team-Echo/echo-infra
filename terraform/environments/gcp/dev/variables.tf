@@ -186,6 +186,12 @@ variable "entrypoint_prometheus_remote_write" {
   default     = false
 }
 
+variable "entrypoint_journal_enabled" {
+  description = "주 진입점의 요청 기록(journal, 인프라 12.4)을 켠다. true 여도 Envoy 필터는 런타임 journal.enabled=0 으로 꺼진 채 뜬다(VM 에서 runtime_modify 로 켬). false 면 기록하지 않는다"
+  type        = bool
+  default     = false
+}
+
 variable "entrypoint_remote_write_cidrs" {
   description = "Prometheus(9090) remote write 만 열어 줄 CIDR (예 온프레 EC2 공인 IP/32). admin CIDR 과 달리 8080·3000 은 열지 않는다. 비어 있으면 규칙을 만들지 않는다"
   type        = list(string)

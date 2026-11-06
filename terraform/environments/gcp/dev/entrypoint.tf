@@ -115,7 +115,8 @@ resource "google_project_iam_member" "entry" {
 # 읽기: gcloud secrets versions access latest --secret=<이름>
 resource "google_secret_manager_secret" "entry" {
   # prometheus-remote-write: 인프라 9 basic auth 비밀번호(사용자 echo-otel). VM 이 처음 켤 때 만든다.
-  for_each  = toset(["weights-token", "grafana-admin", "prometheus-remote-write"])
+  # journal-token: 인프라 12.4 요청 기록 관리 API(:8082) 토큰. replay.sh·promote-with-replay.sh 가 쓴다.
+  for_each  = toset(["weights-token", "grafana-admin", "prometheus-remote-write", "journal-token"])
   secret_id = "${local.entry_name}-${each.value}"
 
   replication {
@@ -180,6 +181,8 @@ resource "google_compute_instance" "entry" {
       secret_grafana  = google_secret_manager_secret.entry["grafana-admin"].secret_id
       secret_prom_rw  = google_secret_manager_secret.entry["prometheus-remote-write"].secret_id
       prom_rw_enabled = var.entrypoint_prometheus_remote_write
+      secret_journal  = google_secret_manager_secret.entry["journal-token"].secret_id
+      journal_enabled = var.entrypoint_journal_enabled
       sync_from       = "" # 주 진입점: 동기화 없음
     })
   }
@@ -257,6 +260,8 @@ resource "google_compute_instance" "entry_secondary" {
       secret_grafana  = google_secret_manager_secret.entry["grafana-admin"].secret_id
       secret_prom_rw  = google_secret_manager_secret.entry["prometheus-remote-write"].secret_id
       prom_rw_enabled = var.entrypoint_prometheus_remote_write
+      secret_journal  = google_secret_manager_secret.entry["journal-token"].secret_id
+      journal_enabled = false # 요청 기록은 주 진입점에만 (SPEC infra-12.4 D-11)
       sync_from       = "http://${google_compute_instance.entry.network_interface[0].network_ip}:8080"
     })
   }
