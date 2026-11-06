@@ -20,6 +20,20 @@ output "gke_cluster_endpoint" {
   value = "https://${google_container_cluster.this.endpoint}"
 }
 
+# 고객 워크로드 전용 GKE (인프라 16). customer_gke_enabled = false 면 null.
+output "customer_gke_cluster_name" {
+  description = "echo-was gcp-seoul 환경 config clusterName 으로 넣는다(전환 단계 2)"
+  value       = var.customer_gke_enabled ? google_container_cluster.customer[0].name : null
+}
+
+output "customer_gke_cluster_endpoint" {
+  value = var.customer_gke_enabled ? "https://${google_container_cluster.customer[0].endpoint}" : null
+}
+
+output "customer_subnet_cidr" {
+  value = var.customer_gke_enabled ? google_compute_subnetwork.customer[0].ip_cidr_range : null
+}
+
 output "network_name" {
   value = google_compute_network.this.name
 }

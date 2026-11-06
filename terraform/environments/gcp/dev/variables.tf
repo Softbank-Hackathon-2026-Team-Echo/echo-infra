@@ -94,6 +94,78 @@ variable "node_disk_size_gb" {
   default = 50
 }
 
+# 고객 워크로드 전용 GKE (customer-gke.tf, 인프라 16). 대역은 contracts/aws-outputs.md 표에 함께 적는다.
+
+variable "customer_gke_enabled" {
+  description = "고객 워크로드 전용 클러스터(echo-dev-customer-gke)를 만든다. 기본 false — 팀 합의 뒤 tfvars 에서 true 로 켠다"
+  type        = bool
+  default     = false
+}
+
+variable "customer_subnet_cidr" {
+  description = "고객 클러스터 노드 서브넷 (관제탑 10.60~10.62, 샌드박스 10.70·10.71 과 겹치지 않게)"
+  type        = string
+  default     = "10.63.0.0/20"
+}
+
+variable "customer_pods_cidr" {
+  description = "고객 클러스터 파드 보조 대역"
+  type        = string
+  default     = "10.64.0.0/16"
+}
+
+variable "customer_services_cidr" {
+  description = "고객 클러스터 서비스 보조 대역"
+  type        = string
+  default     = "10.65.0.0/20"
+}
+
+variable "customer_master_cidr" {
+  description = "고객 클러스터 컨트롤 플레인 대역 (/28, 관제탑 172.16.0.0/28 다음 칸)"
+  type        = string
+  default     = "172.16.0.16/28"
+}
+
+variable "customer_gke_min_master_version" {
+  description = "고객 클러스터 최소 버전. 관제탑과 같은 CVE-2026-98432 수정 버전 이상으로 시작한다"
+  type        = string
+  default     = "1.36.5-gke.1982000"
+}
+
+variable "customer_gke_freeze_start_time" {
+  description = "업그레이드 제외(demo-freeze) 시작 시각(RFC3339 UTC)"
+  type        = string
+  default     = "2026-11-04T15:00:00Z"
+}
+
+variable "customer_gke_freeze_end_time" {
+  description = "업그레이드 제외(demo-freeze) 끝 시각(RFC3339 UTC). 관제탑 클러스터와 같다. 이미 지난 시각이면 \"\" 로 둔다(제외 없음)"
+  type        = string
+  default     = "2026-11-08T14:59:00Z"
+}
+
+variable "customer_node_machine_type" {
+  description = "고객 클러스터 노드 머신 타입"
+  type        = string
+  default     = "e2-standard-2"
+}
+
+variable "customer_node_min_count" {
+  description = "고객 클러스터 최소 노드 수 (비용 목표 ≈$4/일 → 평소 1대)"
+  type        = number
+  default     = 1
+}
+
+variable "customer_node_max_count" {
+  type    = number
+  default = 2
+}
+
+variable "customer_node_disk_size_gb" {
+  type    = number
+  default = 30
+}
+
 # Artifact Registry
 
 variable "artifact_images" {
