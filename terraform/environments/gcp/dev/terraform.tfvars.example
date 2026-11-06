@@ -24,3 +24,6 @@ gke_admin_members = [
 #   aws = "<EKS demo-app NLB DNS>:80"
 #   gcp = "<GKE demo-app 내부 LB IP>:80"
 # }
+
+# 진입점 앞단 헬스체크 NLB (인프라 5.3): entrypoint_secondary_zones 가 있어야 한다
+# entrypoint_lb_enabled = true

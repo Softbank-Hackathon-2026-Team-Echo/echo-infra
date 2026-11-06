@@ -264,3 +264,106 @@ resource "google_compute_instance" "entry_secondary" {
     google_secret_manager_secret_iam_member.entry_accessor,
   ]
 }
+
+# 진입점 앞단 헬스체크 LB (인프라 5.3, #82). 리전 외부 패스스루 NLB + 장애 조치 백엔드:
+#   평소엔 주(a)로만 보내고, a 헬스체크가 실패하면 보조(b)로 넘긴다. echo-was 의 가중치·판정·지표가 a 만 보기 때문에
+#   평소 트래픽을 a 로 모아야 숫자가 맞는다. 11/6 측정: Cloudflare A 레코드 두 개(헬스체크 없음)로는 b 정지 동안 75초간 126건 중 15건 실패.
+#   Cloudflare *.echoport.uk 는 이 LB IP 하나를 가리킨다. var.entrypoint_lb_enabled = false 면 아무것도 만들지 않는다.
+locals {
+  entry_lb_enabled = var.entrypoint_lb_enabled && length(var.entrypoint_secondary_zones) > 0
+}
+
+resource "google_compute_instance_group" "entry_primary" {
+  count     = local.entry_lb_enabled ? 1 : 0
+  name      = "${local.entry_name}-a"
+  zone      = var.zone
+  instances = [google_compute_instance.entry.self_link]
+}
+
+resource "google_compute_instance_group" "entry_secondary" {
+  for_each  = local.entry_lb_enabled ? toset(var.entrypoint_secondary_zones) : toset([])
+  name      = "${local.entry_name}-${each.key}"
+  zone      = "${var.region}-${each.key}"
+  instances = [google_compute_instance.entry_secondary[each.key].self_link]
+}
+
+resource "google_compute_region_health_check" "entry" {
+  count  = local.entry_lb_enabled ? 1 : 0
+  name   = "${local.entry_name}-hc"
+  region = var.region
+
+  check_interval_sec  = 2
+  timeout_sec         = 1
+  healthy_threshold   = 2
+  unhealthy_threshold = 2
+
+  http_health_check {
+    port         = 80
+    request_path = "/__entry/healthz"
+  }
+}
+
+resource "google_compute_region_backend_service" "entry" {
+  count                 = local.entry_lb_enabled ? 1 : 0
+  name                  = "${local.entry_name}-lb"
+  region                = var.region
+  protocol              = "TCP"
+  load_balancing_scheme = "EXTERNAL"
+  health_checks         = [google_compute_region_health_check.entry[0].id]
+
+  connection_draining_timeout_sec = 0
+
+  backend {
+    group          = google_compute_instance_group.entry_primary[0].self_link
+    balancing_mode = "CONNECTION"
+  }
+
+  dynamic "backend" {
+    for_each = google_compute_instance_group.entry_secondary
+    content {
+      group          = backend.value.self_link
+      balancing_mode = "CONNECTION"
+      failover       = true
+    }
+  }
+
+  failover_policy {
+    disable_connection_drain_on_failover = true
+    drop_traffic_if_unhealthy            = false
+    failover_ratio                       = 1
+  }
+}
+
+resource "google_compute_address" "entry_lb" {
+  count  = local.entry_lb_enabled ? 1 : 0
+  name   = "${local.entry_name}-lb"
+  region = var.region
+
+  depends_on = [google_project_service.this["compute.googleapis.com"]]
+}
+
+resource "google_compute_forwarding_rule" "entry_lb" {
+  count                 = local.entry_lb_enabled ? 1 : 0
+  name                  = "${local.entry_name}-lb"
+  region                = var.region
+  load_balancing_scheme = "EXTERNAL"
+  ip_protocol           = "TCP"
+  ports                 = ["80"]
+  ip_address            = google_compute_address.entry_lb[0].address
+  backend_service       = google_compute_region_backend_service.entry[0].id
+}
+
+# NLB 헬스체크 대역 → 진입점 80 (Google 문서: 패스스루 NLB 헬스체크 원본 대역)
+resource "google_compute_firewall" "entry_lb_health_check" {
+  count   = local.entry_lb_enabled ? 1 : 0
+  name    = "${local.entry_name}-lb-hc"
+  network = google_compute_network.this.name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["80"]
+  }
+
+  source_ranges = ["35.191.0.0/16", "209.85.152.0/22", "209.85.204.0/22"]
+  target_tags   = ["entrypoint"]
+}
