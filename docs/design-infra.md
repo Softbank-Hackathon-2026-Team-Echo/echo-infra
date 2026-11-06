@@ -66,7 +66,7 @@ flowchart LR
 - **가중치**: `PUT /weights {"aws":50,"gcp":50}` → 파일 기반 xDS, 재시작 없이 즉시(로컬 측정 1초 안). 10 → 50 → 100% 단계 승격은 echo-was 가 `GET /counters`(환경별 누적 요청·5xx, Envoy 호스트 통계라 즉시)로 "도착 환경이 N건 처리"를 확인한 뒤 올린다.
 - **장애**: `/healthz` 2초 간격, 2회 실패면 제외. aggregate 클러스터(`aws_then_gcp`·`gcp_then_aws`)라 한쪽이 전멸하면 가중치와 무관하게 전부 다른 쪽으로 간다.
 - **DNS 가중치를 쓰지 않는 이유**(`entrypoint/README.md`): 반영 시점이 TTL·리졸버 캐시에 묶여 비율을 알 수 없고, 요청을 세지 못해 건수 판정이 안 되며, 롤백 60초(NFR-05)를 보장 못 한다. Envoy 는 어느 클라우드에서도 같은 설정이라 벤더 중립이다.
-- **단일 장애점 대응(인프라 5.1)**: 같은 VM 을 다른 존(b)에 하나 더 두고(11/4 적용, 8.230.16.205) Cloudflare 의 `*.echoport.uk` 에 프록시된 A 레코드를 두 IP 로 둔다 — 한 IP 가 실패하면 Cloudflare 가 다른 IP 로 재시도한다. 보조는 주의 `/weights` 를 2초마다 당겨 가중치를 맞추고 토큰은 Secret Manager 값을 공유한다. DNS 는 프록시 자체의 생존에만 쓴다. 페일오버 실측은 `TBD`(두 번째 레코드 반영 뒤 `entrypoint/scripts/failover-probe.sh`).
+- **단일 장애점 대응(인프라 5.1)**: 같은 VM 을 다른 존(b)에 하나 더 두고(11/4 적용, 8.230.16.205) Cloudflare 의 `*.echoport.uk` 에 프록시된 A 레코드를 두 IP 로 둔다 — 한 IP 가 실패하면 Cloudflare 가 다른 IP 로 재시도한다. 보조는 주의 `/weights` 를 2초마다 당겨 가중치를 맞추고 토큰은 Secret Manager 값을 공유한다. DNS 는 프록시 자체의 생존에만 쓴다. **11/6 실측: 헬스체크 없는 DNS 라운드로빈이라 페일오버가 되지 않았다**(b 정지 75초 동안 126건 중 15건 실패, 7절). 다음 단계는 헬스체크 LB(#82).
 
 ## 4. 빌드·배포 경로 (F1)
 
@@ -117,6 +117,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 | 실제 실행기 복귀 gcp→aws (Start failback) | 13초, 실패 요청 0 | 같음 |
 | 실제 실행기 이전 중 Roll back | 되돌림 3초 | 같음 |
 | 장애 시 우회 | 1초 안 (로컬) | `entrypoint/README.md` |
+| 진입점 하나 정지 (Cloudflare A 레코드 2개) | 75초 동안 126건 중 15건 실패(5초 타임아웃) — 헬스체크 없어 죽은 쪽으로 계속 보냄 | 11/6 15:04 `docs/rehearsals/2026-11-06-entry-failover.md` |
 | 컷오버 A→B 쓰기 정지 / 롤백 B→A 복귀 | 7.97초 / 9.42초 (PAUSE 드레인 ≈1초 + 따라잡기 <1초 + 역방향 구독·repoint·RESUME ≈6~8초) | 11/4 20:25 10 rps 쓰기 중, `rehearsals/2026-11-04-2025.md` |
 | 컷오버·롤백 대조 | A 168 = B 168, 누락 0 · 중복 0 | 같음 |
 | 컷오버·롤백 중 쓰기 요청 | 166건 중 5건 클라이언트 10초 타임아웃, 데이터 누락 0(4건은 DB 반영) | 같음 |
@@ -145,7 +146,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 
 | 한계 | 지금 | 대안·계획 |
 |---|---|---|
-| 진입점 단일 장애점 | VM 1대 → 11/4 보조 VM(존 b) 적용, Cloudflare 두 번째 A 레코드·측정 대기 | 두 곳 + DNS 페일오버 PoC(5.1), 규모가 커지면 관리형 LB 뒤 Envoy 여러 대 |
+| 진입점 단일 장애점 | VM 두 대(존 a·b) + Cloudflare A 레코드 2개. 11/6 측정: 헬스체크가 없어 한 대가 죽으면 일부 요청이 계속 실패 | 헬스체크 LB(GCP 리전 외부 NLB 뒤 a·b, #82). 본선 뒤 |
 | 같은 계정에 두 번째 AWS 환경 | OIDC 공급자(계정당 1개)·ECR 이름(`echo/app`)·닻 ALB 이름이 환경 무관 | 리허설은 `-target`·`project` 변수로 우회. 후속: OIDC data 참조 옵션, ECR·ALB 이름을 환경에서 파생 |
 | 첫 이전 때 도착 환경 p95 `null` | Prometheus `usedonly` 수집 | 판정엔 영향 없음(건수 기반). 수집 옵션 조정 또는 사전 워밍 |
 | EKS·온프레 수집기 → 진입점 remote write 가 HTTP 평문 | basic auth 비밀번호가 공인 구간에 평문 | 보안 #23 한계. 여유 시 Prometheus `tls_server_config`(자체 서명) + 수집기 `insecure_skip_verify` |
