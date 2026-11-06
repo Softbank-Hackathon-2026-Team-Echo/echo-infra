@@ -17,7 +17,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 |---|---|
 | `aws-tokyo/` | A: 네임스페이스·Postgres(TLS)·PgBouncer(emptyDir ini)·`30-expose.yaml`(NLB). `kustomization.yaml` 로 한 번에(`apply -k`), **클러스터 실제 상태와 같음**(11/4 `diff -k` 확인) |
 | `gcp-seoul/` | B: 같은 구성(처음부터 TLS·emptyDir ini 포함). PgBouncer 백엔드 자리표시 `__A_HOST__` |
-| `scripts/` | `subscribe.sh`(A→B 세우기) · `lag.sh` · `cutover.sh` · `rollback.sh` · `promote.sh`(A 급사 시 B 승격) · `resync-a.sh`(승격 뒤 A 다시 맞추기) · `verify.sh`(누락·중복 대조) · `ops-table.sh`(컷오버 결과 표 `echo_ops.cutover_runs` 만들기, 인프라 7.2) · `writer.sh`(진입점 경유 쓰기 부하) · `rehearsal.sh`(한 번에: 대조→컷오버→대조→롤백→대조, `rehearsals/` 에 기록) · `common.sh` |
+| `scripts/` | `subscribe.sh`(A→B 세우기) · `lag.sh` · `cutover.sh` · `rollback.sh` · `promote.sh`(A 급사 시 B 승격) · `resync-a.sh`(승격 뒤 A 다시 맞추기) · `verify.sh`(누락·중복 대조) · `ops-table.sh`(컷오버 결과 표 `echo_ops.cutover_runs` 만들기, 인프라 7.2) · `writer.sh`(진입점 경유 쓰기 부하) · `rehearsal.sh`(한 번에: 대조→컷오버→대조→롤백→대조, `rehearsals/` 에 기록) · `sync-role-verifiers.sh`(앱 계정 SCRAM 검증자 A→B 맞추기) · `common.sh` |
 
 ## 적용 순서 (사람이, 데스크톱에서 · 인프라 담당 확인 뒤)
 
@@ -47,7 +47,18 @@ B_HOST=$(kubectl --context $B -n echo-data get svc echo-pg-external -o jsonpath=
 # 4) 정방향 복제 A→B
 A_HOST=$A_HOST scripts/subscribe.sh
 scripts/lag.sh; scripts/verify.sh
+
+# 5) 앱 계정 SCRAM 검증자를 A 값으로 B 에 맞춤 (안 하면 컷오버 뒤 PgBouncer 로그인 실패 — 아래 "SCRAM 검증자")
+scripts/sync-role-verifiers.sh; scripts/sync-role-verifiers.sh --check
 ```
+
+### SCRAM 검증자 (11/6 운영 Job 시험에서 발견)
+
+A·B 는 같은 비밀번호로 `app_rw` 를 **따로** 만들어(`10-postgres.yaml`) 솔트가 다르다. PgBouncer 는 `auth_query` 로 받은 검증자를 기억해 SCRAM 패스스루로 백엔드에 로그인하므로, 컷오버로 백엔드가 바뀌면 새 쪽이 `password authentication failed for user "app_rw"` 로 거부한다(11/6 13:35 도쿄 앱 약 2분 503, rollback 뒤 `server_login_retry` 가 풀리며 복구).
+
+- `scripts/sync-role-verifiers.sh`: A 의 검증자를 B 에 `ALTER ROLE … PASSWORD '<검증자>'` 로 넣는다. 비밀번호는 그대로, 값은 출력하지 않는다(지문만). `--check` 는 확인만
+- `cutover.sh`·`rollback.sh` 의 preflight 가 검증자를 비교해, 다르면 **쓰기 정지 전에** 종료 1(바뀐 것 없음)
+- 클러스터를 새로 세우거나 비밀번호를 바꾸면 다시 돌린다. 대상 계정은 `SCRAM_ROLES`(기본 `app_rw`). `pgbouncer_auth` 는 `userlist.txt` 평문이라 해당 없음
 
 ### 앱 DB 연결
 

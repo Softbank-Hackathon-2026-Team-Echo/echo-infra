@@ -193,5 +193,28 @@ run env PLAN_ID=$P8 "$S/rollback.sh"; check "종료 코드" 0 $?
 check "writer_side" A "$(writer)"
 check "P8 기록 (kind|누락|중복)" "ROLLBACK|1|0" "$(q A "SELECT kind||'|'||missing_rows||'|'||duplicate_rows FROM echo_ops.cutover_runs WHERE plan_id='$P8';")"
 
+echo "== 19. A·B 가 같은 비밀번호로 따로 만든 app_rw(솔트 다름) → cutover 가 쓰기 정지 전에 멈춘다 (11/6 운영 발견)"
+P9=99999999-9999-4999-8999-999999999999 P10=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+q A "ALTER ROLE app_rw PASSWORD 'same-pw';" >/dev/null; q B "ALTER ROLE app_rw PASSWORD 'same-pw';" >/dev/null
+p0=$(pauses)
+run env PLAN_ID=$P9 "$S/cutover.sh"; check "종료 코드" 1 $?
+[[ $LAST_OUT == *"검증자가 다르다: app_rw"* ]] && ok "다른 계정 이름을 알림" || bad "검증자 차이 안내 없음"
+check "쓰기 정지 없음" "$p0" "$(pauses)"
+check "writer_side 그대로" A "$(writer)"
+
+echo "== 19-1. sync-role-verifiers.sh → B 가 A 검증자로, 비밀번호는 그대로"
+run "$S/sync-role-verifiers.sh" --check; check "--check (다름)" 1 $?
+run "$S/sync-role-verifiers.sh"; check "맞추기" 0 $?
+[[ $LAST_OUT != *SCRAM-SHA-256* ]] && ok "검증자 값을 출력하지 않음" || bad "검증자 값이 출력됨"
+run "$S/sync-role-verifiers.sh" --check; check "--check (같음)" 0 $?
+# 시험 Postgres 는 trust 라 로그인으로는 확인할 수 없다 → 검증자 문자열이 같으면 같은 비밀번호·솔트다.
+check "A·B 검증자 같음" "$(q A "SELECT rolpassword FROM pg_authid WHERE rolname='app_rw';")" "$(q B "SELECT rolpassword FROM pg_authid WHERE rolname='app_rw';")"
+
+echo "== 19-2. 맞춘 뒤 cutover → rollback 정상"
+run env PLAN_ID=$P9 "$S/cutover.sh"; check "cutover 종료 코드" 0 $?
+check "writer_side" B "$(writer)"
+run env PLAN_ID=$P10 "$S/rollback.sh"; check "rollback 종료 코드" 0 $?
+check "writer_side" A "$(writer)"
+
 echo; echo "결과: 통과 $pass · 실패 $fail"
 [[ $fail == 0 ]]
