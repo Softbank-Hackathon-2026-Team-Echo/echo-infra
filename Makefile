@@ -31,12 +31,14 @@ check:
 	bash scripts/check.sh
 
 # ---------- 시연용 합성 트래픽 (GKE 안, 평소 0 개) ----------
+LOADGEN_CTX ?= gke_team-echo-final_asia-northeast3-a_echo-dev-gke
+
 loadgen-apply:
-	kubectl apply -k entrypoint/loadgen
+	kubectl --context $(LOADGEN_CTX) apply -k entrypoint/loadgen
 
 loadgen-on: loadgen-apply
-	kubectl -n echo-loadgen scale deploy/loadgen --replicas=1
-	kubectl -n echo-loadgen rollout status deploy/loadgen --timeout=120s
+	kubectl --context $(LOADGEN_CTX) -n echo-loadgen scale deploy/loadgen --replicas=1
+	kubectl --context $(LOADGEN_CTX) -n echo-loadgen rollout status deploy/loadgen --timeout=120s
 
 loadgen-off:
-	kubectl -n echo-loadgen scale deploy/loadgen --replicas=0
+	kubectl --context $(LOADGEN_CTX) -n echo-loadgen scale deploy/loadgen --replicas=0
