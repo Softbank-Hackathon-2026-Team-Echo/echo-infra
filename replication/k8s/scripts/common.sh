@@ -163,6 +163,24 @@ plan_runs() { [[ -z ${PLAN_ID:-} ]] && { echo 0; return; }
   pg "$1" -c "SELECT count(*) FROM echo_ops.cutover_runs WHERE plan_id = '$PLAN_ID' AND kind = '$2';"; }
 
 # 시작 전 확인: 이미 끝났으면 exit 0, 판단할 수 없으면 exit 2. preflight <CUTOVER|ROLLBACK> <from> <to>
+# ── 앱 계정 SCRAM 검증자 (11/6 운영 Job 시험에서 발견) ──────────────────────────────────────────────
+# PgBouncer 는 auth_query 로 받은 검증자를 기억해 두고 SCRAM 패스스루로 백엔드에 로그인한다. 컷오버로 백엔드가 바뀌어도
+# 기억한 검증자(옛 쪽 솔트)로 만든 키를 보내므로, A·B 검증자가 다르면 새 쪽이 "password authentication failed" 로 거부한다.
+# 양쪽 10-postgres.yaml 이 같은 비밀번호로 따로 CREATE ROLE 해 솔트가 다르다 → sync-role-verifiers.sh 로 A 값을 B 에 맞춘다.
+SCRAM_ROLES="${SCRAM_ROLES:-app_rw}"
+# 검증자 지문(md5 앞 12자, 값 자체는 내보내지 않음). 비밀번호가 없으면 none.
+verifier_fp() { pg "$1" -c "SELECT COALESCE(left(md5(rolpassword), 12), 'none') FROM pg_authid WHERE rolname = '$2';"; }
+# 다른 계정 이름을 한 줄로 낸다. 모두 같으면 빈 출력.
+verifiers_diff() { local r a b out=""
+  for r in $SCRAM_ROLES; do a=$(verifier_fp A "$r"); b=$(verifier_fp B "$r"); [[ $a == "$b" ]] || out+="$r "; done
+  echo "${out% }"; }
+verifiers_must_match() { local d
+  d=$(verifiers_diff)
+  [[ -z $d ]] && return 0
+  echo "[중단] A·B 의 SCRAM 검증자가 다르다: $d — 이대로 옮기면 PgBouncer 로그인이 실패한다(바뀐 것 없음)." >&2
+  echo "       replication/k8s/scripts/sync-role-verifiers.sh 로 맞춘 뒤 다시 실행한다." >&2
+  exit 1; }
+
 preflight() {
   local kind=$1 from=$2 to=$3 w n
   w=$(writer_side)
@@ -177,7 +195,8 @@ preflight() {
   fi
   case $w in
     "$to")   echo "[건너뜀] ALREADY_WRITER: 쓰기 담당이 이미 $to 다"; exit 0 ;;
-    "$from") echo "[확인] 쓰기 담당 $from → $to 로 옮긴다" ;;
+    "$from") verifiers_must_match
+             echo "[확인] 쓰기 담당 $from → $to 로 옮긴다" ;;
     *)       echo "[중단] 쓰기 담당을 판단할 수 없다: $w — replication/k8s/README.md '부분 상태 복구'를 따른다" >&2; exit 2 ;;
   esac
 }
