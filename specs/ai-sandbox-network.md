@@ -1,6 +1,6 @@
 # AI 에이전트 샌드박스 망·VM SPEC
 
-- 상태: 코드 작성, **plan·apply 전**(인프라 담당 리뷰 뒤 apply)
+- 상태: 1~7절 apply 완료(VM 운영 중). 8절 11/6 21:30 apply 완료
 - 확인일: 2026-11-04
 - GitHub 이슈: echo-ai-agent #1(SDK·모델·샌드박스 결정) · #2(샌드박스 생성·실행·로그)
 - 저장소: `echo-infra` · 브랜치 `feat/ai-sandbox-network`
@@ -87,3 +87,15 @@ Makefile은 `gcp/dev` 고정이라 위처럼 `-chdir`·직접 실행으로 쓴�
 - 비밀번호 바꾸기: `testdb_password_version` 을 올려 apply
 - 모델: Model Garden 에서 Claude 사용 동의(콘솔, 사람 1회) 뒤 러너가 `AnthropicVertex(region="asia-northeast3", project_id="team-echo-final")` 로 부른다(키 없이 VM SA). 서울에 없는 모델이면 오류가 나므로 apply 뒤 VM 에서 한 번 호출해 확인한다
 - 완료 기준: VM 에서 `psql "$URL" -c 'select 1'` 성공 · VM 밖(로컬)에서 접속 불가 · 다른 비밀 읽기 거부(기존)
+
+### 8-1. 적용·확인 기록 (11/6)
+
+| 시각 | 한 일 | 결과 |
+|---|---|---|
+| 21:2x | `terraform apply`(이도현, `gcp/ai-sandbox` 만) | 14 added · 0 changed · 0 destroyed. 다시 plan → No changes |
+| 21:3x | VM 에서 비밀 `echo-sandbox-test-database-url` 읽어 `psql`(값 출력 안 함) | PostgreSQL 17.11 · `sandbox_tester`/`sandbox_test` · TLS 사용 · 스키마 만들기·지우기 됨 |
+| 21:3x | `gcloud sql instances describe` | 공인 IP 없음(`ipv4Enabled=False`, PRIVATE 만) · `ENCRYPTED_ONLY` |
+| 21:3x | VM SA 로 다른 비밀 목록 | 403(거부) |
+| 21:3x | VM SA 로 Vertex AI `rawPredict`(Model Garden Claude 동의 뒤) | **서울(asia-northeast3): Claude 모델 없음(404, opus·sonnet·haiku·fable 모두)**. 도쿄·싱가포르·us-east5·global: 권한 통과, **쿼터 0 → 429** |
+
+- 결론: 서울 리전 Vertex AI 에는 Claude 가 없다. 지금 러너는 그대로 Anthropic API 키(`echo-sandbox-anthropic-api-key`)로 부른다(11/5부터 운영). Vertex AI 로 바꾸려면 도쿄(asia-northeast1) 쿼터 증설 요청(콘솔, 사람)이 먼저다. predict 권한·API 는 그때를 위해 남겨 둔다
