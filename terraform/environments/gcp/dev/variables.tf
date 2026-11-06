@@ -168,6 +168,12 @@ variable "entrypoint_secondary_zones" {
   default     = []
 }
 
+variable "entrypoint_lb_enabled" {
+  description = "진입점 앞단 헬스체크 NLB(평소 a, a 장애 시 b) 를 만든다 (인프라 5.3). entrypoint_secondary_zones 가 있어야 한다. Cloudflare 는 출력 entrypoint_lb_ip 를 가리킨다"
+  type        = bool
+  default     = false
+}
+
 variable "entrypoint_admin_cidrs" {
   description = "가중치 API(8080)·Prometheus(9090)·Grafana(3000)에 붙을 수 있는 CIDR. 비어 있으면 열지 않는다"
   type        = list(string)

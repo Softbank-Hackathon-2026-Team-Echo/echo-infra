@@ -123,3 +123,18 @@ Prometheus 는 5초마다 긁고 7일 보관. 접근 로그는 JSON 으로 stdou
 - **보조 IP 를 받는 쪽에도 열어야 한다**: AWS 닻 ALB 의 `inbound-cidrs`(`cluster-addons/eks/anchor-ingress.yaml`)에 보조 IP 를 더하고 `kubectl apply`. 빠뜨리면 보조 VM 에서 aws 헬스체크가 타임아웃돼 gcp 로만 흐른다(11/4 적용 때 확인). GKE 쪽 nginx 는 VPC 안이라 바꿀 것 없다.
 - 한계: 주가 죽어 있는 동안 echo-was 는 가중치를 바꾸지 못한다(보조는 마지막 값으로 흐른다). 주 복구 뒤 보조가 자동으로 다시 맞춘다. 규모가 커지면 관리형 LB 뒤 Envoy 여러 대 + 가중치 저장소 분리가 답이다.
 - 측정: `HOST=<대표 주소> DURATION=120 entrypoint/scripts/failover-probe.sh` 를 돌리면서 다른 창에서 주 VM 을 멈춘다(`gcloud compute instances stop echo-dev-entry --zone asia-northeast3-a`). 실패 구간(초)·실패 건수가 나온다. 값은 `docs/design-infra.md` 7절에 적는다.
+
+## 앞단 헬스체크 NLB (인프라 5.3, 11/6)
+
+진입점 두 곳을 Cloudflare A 레코드 두 개로만 묶으면 헬스체크가 없어, 한 대가 죽어도 요청 일부가 계속 그쪽으로 간다(11/6 측정: b 정지 75초 동안 126건 중 15건 실패, `docs/rehearsals/2026-11-06-entry-failover.md`).
+그래서 진입점 앞에 **리전 외부 패스스루 NLB** 를 둔다(`entrypoint_lb_enabled = true`).
+
+| 무엇 | 값 |
+|---|---|
+| 헬스체크 | `GET /__entry/healthz` :80, 2초 간격, 2회 실패면 제외 |
+| 평소 | 주(a)로만 보낸다 — echo-was 의 가중치·`/counters`·Prometheus 가 a 를 보기 때문에 숫자가 맞는다 |
+| a 장애 | 장애 조치 백엔드 b 로 넘긴다(가중치는 b 가 2초마다 맞춰 둔 마지막 값). a 가 돌아오면 다시 a |
+| Cloudflare | `*.echoport.uk` A 레코드를 출력 `entrypoint_lb_ip` 하나로(프록시 켬). 기존 a·b 레코드는 지운다 |
+| 방화벽 | NLB 헬스체크 대역 35.191.0.0/16 · 209.85.152.0/22 · 209.85.204.0/22 → 80 |
+
+되돌리기: Cloudflare 레코드를 a IP 로 되돌리면 끝(LB 는 남아 있어도 무해). LB 를 지우려면 `entrypoint_lb_enabled = false` → apply.
