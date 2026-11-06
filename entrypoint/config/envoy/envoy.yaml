@@ -18,6 +18,16 @@ overload_manager:
         "@type": type.googleapis.com/envoy.extensions.resource_monitors.downstream_connections.v3.DownstreamConnectionsConfig
         max_active_downstream_connections: 5000
 
+# 런타임 값. 요청 기록 필터(인프라 12.4)는 journal.enabled(0~100 %)로 켠다 — 기본 0 = 꺼짐.
+# 켜기: curl -X POST '127.0.0.1:9901/runtime_modify?journal.enabled=100' (admin 층, Envoy 재시작하면 다시 0)
+layered_runtime:
+  layers:
+    - name: static
+      static_layer:
+        journal.enabled: 0
+    - name: admin
+      admin_layer: {}
+
 dynamic_resources:
   cds_config:
     path_config_source:
@@ -26,6 +36,18 @@ dynamic_resources:
         path: /etc/envoy/dynamic
 
 static_resources:
+  # 요청 기록 서비스(인프라 12.4). 동적 clusters.yaml 은 weights-api 소유라 여기 정적으로 둔다.
+  clusters:
+    - name: journal
+      type: STRICT_DNS
+      connect_timeout: 0.25s
+      load_assignment:
+        cluster_name: journal
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address: { address: journal, port_value: 8081 }
   listeners:
     - name: http
       address:
@@ -48,6 +70,33 @@ static_resources:
                       watched_directory:
                         path: /etc/envoy/dynamic
                 http_filters:
+                  # 요청 기록(인프라 12.4, specs/infra-12.4-request-journal.md). 쓰기를 journal 에 남긴 뒤 업스트림으로 보낸다.
+                  # 기본 꺼짐(journal.enabled=0). journal 이 죽거나 느리면 통과(failure_mode_allow) — 시연 앱이 멈추지 않게.
+                  # journal 이 429 를 주면(재생 중 hold) 클라이언트에 그대로 429 + Retry-After. 5xx 는 고장으로 보고 통과시키므로 4xx 를 쓴다.
+                  - name: envoy.filters.http.ext_authz
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+                      transport_api_version: V3
+                      failure_mode_allow: true
+                      filter_enabled:
+                        default_value: { numerator: 0, denominator: HUNDRED }
+                        runtime_key: journal.enabled
+                      with_request_body:
+                        max_request_bytes: 65536
+                        allow_partial_message: true
+                      http_service:
+                        server_uri: { uri: "http://journal:8081", cluster: journal, timeout: 0.5s }
+                        path_prefix: /check
+                        authorization_request:
+                          allowed_headers:
+                            patterns:
+                              - { exact: x-request-id }
+                              - { exact: idempotency-key }
+                              - { exact: content-type }
+                        authorization_response:
+                          allowed_client_headers:
+                            patterns:
+                              - { exact: retry-after }
                   - name: envoy.filters.http.router
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
