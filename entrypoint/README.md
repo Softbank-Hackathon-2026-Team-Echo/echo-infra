@@ -124,7 +124,7 @@ Prometheus 는 5초마다 긁고 7일 보관. 접근 로그는 JSON 으로 stdou
 ## Cloudflare 에 붙일 때
 
 - `*.echoport.uk` A 레코드 → `entrypoint_ip`. 프록시(주황 구름)를 켜면 Cloudflare 가 TLS 를 끝내고 **HTTP 80** 으로 온다. Envoy 는 그대로 80 만 받는다. 이때 `envoy.yaml` 의 `xff_num_trusted_hops` 를 1 로 올린다(진짜 클라이언트 IP).
-- 헬스체크는 Envoy 가 한다. Cloudflare 쪽 헬스체크·로드밸런싱은 켜지 않는다(두 군데서 전환하면 꼬인다).
+- **환경 간(aws/gcp)** 헬스체크·전환은 Envoy 가 한다. Cloudflare 로 환경 비율을 나누지 않는다(두 군데서 전환하면 꼬인다). 인프라 17 의 Cloudflare Load Balancer 는 **어느 진입점이 받나**(GCP NLB ↔ AWS c)에만 쓴다 — 아래 「진입점 c」 절.
 - Host 헤더는 그대로 업스트림에 넘어간다(`{서비스}.echoport.uk`). **각 환경의 인그레스가 이 고정 호스트도 받아야 한다**(환경별 주소 `{서비스}-{환경}-{8자}.echoport.uk` 에 더해). 서비스마다 호스트를 바꿔 주는 방식(`host_rewrite_literal`)은 필요해지면 weights-api 에 서비스 표를 더한다.
 
 ## 진입점 두 곳 (인프라 5.1 단일 장애점 PoC)
@@ -157,3 +157,20 @@ Prometheus 는 5초마다 긁고 7일 보관. 접근 로그는 JSON 으로 stdou
 | 방화벽 | NLB 헬스체크 대역 35.191.0.0/16 · 209.85.152.0/22 · 209.85.204.0/22 → 80 |
 
 되돌리기: Cloudflare 레코드를 a IP 로 되돌리면 끝(LB 는 남아 있어도 무해). LB 를 지우려면 `entrypoint_lb_enabled = false` → apply.
+
+## 진입점 c — AWS 서울 (인프라 17, 코드만 · 기본 꺼짐 · 미적용)
+
+입구가 GCP 한 회사·한 리전이면 GCP NLB·VPC·리전 장애 때 a·b 가 같이 죽는다. 같은 한 벌을 **AWS 서울** EC2 c 에 하나 더 두고, Cloudflare Load Balancer 가 GCP NLB(풀 1) → c(풀 2) 순서로 페일오버한다. 설계·적용 절차·되돌리기·요금은 [SPEC](../specs/infra-17-second-provider-entrypoint.md).
+
+| 무엇 | a·b (GCP) | c (AWS 서울) |
+|---|---|---|
+| 코드 | `gcp/dev/entrypoint.tf` | `aws/dev/entrypoint-c.tf` (`entrypoint_c_enabled`) |
+| 파일 전달 | 메타데이터 startup-script | S3 설정 버킷 → systemd `echo-entry-c-sync`(부팅마다). user_data 16KB 한도 때문 |
+| 가중치 | a = echo-was PUT, b = a 내부 IP 에서 당김 | a **공인** IP:8080 에서 당김(GCP 방화벽 `entrypoint_weights_sync_cidrs` = c EIP/32) |
+| 토큰 | Secret Manager | SSM SecureString `/echo/dev/entry-c/weights-token`(a 와 같은 값, 적용 절차가 파이프로 넣음) |
+| 업스트림 gcp | 내부 LB 10.60.0.8 | ingress-nginx **외부** LB(`cluster-addons/gke/ingress-nginx-external-entry-c.yaml`, c EIP 만 허용) |
+| 업스트림 aws | 닻 ALB | 같은 ALB(`inbound-cidrs` 에 c EIP 추가) |
+| journal · remote write | a 만 | 꺼짐 |
+| 들어오는 길 | 80 전체 + NLB | 80·443 Cloudflare 대역만, 22 없음(SSM) |
+
+다시 맞추기: `aws ssm start-session --region ap-northeast-2 --target <entrypoint_c_instance_id>` → `sudo systemctl start echo-entry-c-sync` · 로그 `journalctl -u echo-entry-c-sync`.

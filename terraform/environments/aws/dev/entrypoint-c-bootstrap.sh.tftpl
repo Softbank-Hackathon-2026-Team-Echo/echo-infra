@@ -1,0 +1,102 @@
+#!/bin/bash
+# 진입점 c (인프라 17) EC2 user_data. 첫 부팅 때 한 번 돈다(Terraform templatefile).
+# 하는 일: 맞추기 스크립트와 systemd 유닛을 깔고 켠다. 실제 일(도커 설치·S3 설정 받기·compose up)은 그 유닛이 부팅마다 한다.
+# 설정을 바꾼 뒤 다시 맞추기: sudo systemctl start echo-entry-c-sync  (SSM Session Manager 또는 send-command)
+# 로그: journalctl -u echo-entry-c-sync
+set -euo pipefail
+
+umask 022
+cat > /etc/echo-entry-c.conf <<'ECHO_ENTRY_C_CONF'
+BUCKET=${bucket}
+REGION=${region}
+TOKEN_PARAM=${token_parameter}
+ECHO_ENTRY_C_CONF
+
+cat > /usr/local/sbin/echo-entry-c-sync.sh <<'ECHO_ENTRY_C_SYNC'
+#!/bin/bash
+# 진입점 c 맞추기. 부팅마다 + 손으로. 멱등. 비밀값은 화면·로그에 찍지 않는다.
+set -euo pipefail
+. /etc/echo-entry-c.conf
+ROOT=/opt/entrypoint
+export DEBIAN_FRONTEND=noninteractive
+export PATH="/snap/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+log() { echo "[entry-c-sync] $*"; }
+
+# 1. Docker(공식 저장소) + compose·buildx 플러그인, AWS CLI(snap)
+if ! command -v docker >/dev/null 2>&1; then
+  log "docker 설치"
+  apt-get update -qq
+  apt-get install -y -qq ca-certificates curl gnupg >/dev/null
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --batch --yes --dearmor -o /etc/apt/keyrings/docker.gpg
+  chmod a+r /etc/apt/keyrings/docker.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
+  apt-get update -qq
+  apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null
+  systemctl enable --now docker
+fi
+if ! command -v aws >/dev/null 2>&1; then
+  log "aws cli 설치"
+  snap install aws-cli --classic
+fi
+
+# 2. 설정 파일 (entrypoint/ 디렉터리 그대로 + 비밀 아닌 .env 값). 같은 파일을 GCP a·b 도 쓴다.
+mkdir -p "$ROOT"
+aws s3 cp --recursive --only-show-errors --region "$REGION" "s3://$BUCKET/entrypoint/" "$ROOT/"
+aws s3 cp --only-show-errors --region "$REGION" "s3://$BUCKET/settings.env" "$ROOT/.settings.env"
+
+# 3. 비밀값: 가중치 토큰은 a·b 와 같은 값(SSM SecureString, 적용 절차가 넣음). 없으면 멈춘다 —
+#    다른 토큰으로 뜨면 a 에서 가중치를 못 당겨 기본값(aws 100)으로 흐르므로, 차라리 헬스체크가 실패해 풀에서 빠지는 편이 안전하다.
+TOKEN=$(aws ssm get-parameter --region "$REGION" --name "$TOKEN_PARAM" --with-decryption --query Parameter.Value --output text 2>/dev/null || true)
+if [ -z "$TOKEN" ] || [ "$TOKEN" = "None" ]; then
+  log "오류: SSM $TOKEN_PARAM 을 읽지 못했다 (적용 절차 1단계: 토큰 파라미터를 먼저 넣는다)"
+  exit 1
+fi
+# Grafana 관리자 비밀번호는 c 혼자 쓴다(익명 Viewer 로 본다). 처음 한 번 만들어 VM 안에만 둔다.
+if [ ! -s "$ROOT/.grafana-admin" ]; then
+  umask 077
+  openssl rand -hex 16 > "$ROOT/.grafana-admin"
+  umask 022
+fi
+
+# 4. .env = 비밀값 + Terraform 이 정한 값 (매번 다시 쓴다)
+umask 077
+{
+  printf 'WEIGHTS_TOKEN=%s\n' "$TOKEN"
+  printf 'GRAFANA_ADMIN_PASSWORD=%s\n' "$(cat "$ROOT/.grafana-admin")"
+  cat "$ROOT/.settings.env"
+} > "$ROOT/.env"
+umask 022
+unset TOKEN
+
+# 5. 올리기 (GCP 시작 스크립트와 같은 순서)
+cd "$ROOT"
+docker compose up -d --build --remove-orphans
+# Envoy 는 envoy.yaml 을 시작할 때만 읽는다. 내용이 바뀌었을 때만 다시 만든다.
+ENVOY_SUM=$(sha256sum config/envoy/envoy.yaml | cut -d' ' -f1)
+if [ "$(cat .envoy.sha256 2>/dev/null)" != "$ENVOY_SUM" ]; then
+  if [ -f .envoy.sha256 ]; then docker compose up -d --force-recreate --no-deps envoy && log "envoy.yaml 바뀜 → Envoy 다시 만듦"; fi
+  echo "$ENVOY_SUM" > .envoy.sha256
+fi
+log "완료: curl -s localhost/__entry/healthz"
+ECHO_ENTRY_C_SYNC
+chmod 0755 /usr/local/sbin/echo-entry-c-sync.sh
+
+cat > /etc/systemd/system/echo-entry-c-sync.service <<'ECHO_ENTRY_C_UNIT'
+[Unit]
+Description=Echo entrypoint c: S3 settings -> docker compose (infra 17)
+Wants=network-online.target
+After=network-online.target docker.service snapd.seeded.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/echo-entry-c-sync.sh
+TimeoutStartSec=1200
+
+[Install]
+WantedBy=multi-user.target
+ECHO_ENTRY_C_UNIT
+
+systemctl daemon-reload
+systemctl enable echo-entry-c-sync.service
+systemctl start --no-block echo-entry-c-sync.service

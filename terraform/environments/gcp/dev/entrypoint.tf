@@ -75,6 +75,23 @@ resource "google_compute_firewall" "entry_remote_write" {
   target_tags   = ["entrypoint"]
 }
 
+# 인프라 17: AWS 서울 진입점 c 가 a 의 가중치 API(8080) GET /weights 를 2초마다 당긴다(b 의 SYNC_FROM 과 같은 방식).
+# admin CIDR 과 달리 8080 하나만, c 의 EIP/32 에만 연다. 비어 있으면(기본) 규칙을 만들지 않는다 = 지금과 같다.
+resource "google_compute_firewall" "entry_weights_sync" {
+  count = length(var.entrypoint_weights_sync_cidrs) > 0 ? 1 : 0
+
+  name    = "${local.entry_name}-weights-sync"
+  network = google_compute_network.this.name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["8080"]
+  }
+
+  source_ranges = var.entrypoint_weights_sync_cidrs
+  target_tags   = ["entrypoint"]
+}
+
 # SSH 는 IAP 터널로만 (OS Login). 공개 22 는 열지 않는다.
 resource "google_compute_firewall" "entry_iap_ssh" {
   name    = "${local.entry_name}-iap-ssh"

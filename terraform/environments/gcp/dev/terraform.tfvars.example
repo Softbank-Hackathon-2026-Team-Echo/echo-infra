@@ -13,6 +13,8 @@ gke_admin_members = [
 # 인프라 9 OTel: 진입점 Prometheus remote write 수신 + basic auth (기본 false = 지금과 같음)
 # entrypoint_prometheus_remote_write = true
 # entrypoint_remote_write_cidrs      = ["<온프레 EC2 공인 IP>/32"]   # 9090 만 연다
+# 인프라 17: AWS 서울 진입점 c 가 a 의 가중치를 당긴다 (aws/dev 출력 entrypoint_c_ip). 8080 만 연다
+# entrypoint_weights_sync_cidrs = ["<entrypoint_c_ip>/32"]
 
 # 인프라 12.4: 주 진입점 요청 기록(journal). 기본 false. 켜도 Envoy 필터는 꺼진 채 뜬다(README "요청 기록")
 # entrypoint_journal_enabled = true

@@ -264,6 +264,17 @@ variable "entrypoint_journal_enabled" {
   default     = false
 }
 
+variable "entrypoint_weights_sync_cidrs" {
+  description = "가중치 API(8080) 만 열어 줄 CIDR — AWS 서울 진입점 c 의 EIP/32 (인프라 17, aws/dev 출력 entrypoint_c_ip). c 가 a 의 /weights 를 당긴다. 비어 있으면 규칙을 만들지 않는다"
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for c in var.entrypoint_weights_sync_cidrs : can(cidrhost(c, 0)) && c != "0.0.0.0/0"])
+    error_message = "CIDR 형식이어야 하고 0.0.0.0/0 은 안 된다."
+  }
+}
+
 variable "entrypoint_remote_write_cidrs" {
   description = "Prometheus(9090) remote write 만 열어 줄 CIDR (예 온프레 EC2 공인 IP/32). admin CIDR 과 달리 8080·3000 은 열지 않는다. 비어 있으면 규칙을 만들지 않는다"
   type        = list(string)

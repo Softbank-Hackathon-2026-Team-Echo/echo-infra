@@ -1,0 +1,32 @@
+# 인프라 17: AWS 서울 진입점 c 가 GKE 공유 문(ingress-nginx)에 닿는 길. specs/infra-17-second-provider-entrypoint.md
+# 기존 내부 LB(10.60.0.8, 진입점 a·b 가 씀)는 그대로 두고, 같은 nginx 파드 앞에 **외부** L4 LB 를 하나 더 둔다.
+# 받는 곳은 c 의 EIP/32 하나뿐(loadBalancerSourceRanges → GKE 가 그 출처만 여는 방화벽을 만든다). 앱에 인증이 없어 인터넷 전체에 열지 않는다.
+# VPN·인터커넥트는 비용·시간이 커서 쓰지 않는다(SPEC 4.3).
+#
+# 적용(지민 아침 확인 뒤, 적용 절차 4단계): 아래 203.0.113.10/32(문서용 예시 주소)를 aws/dev 출력 entrypoint_c_ip/32 로 바꿔 커밋한 뒤
+#   kubectl --context gke_team-echo-final_asia-northeast3-a_echo-dev-gke apply -f cluster-addons/gke/ingress-nginx-external-entry-c.yaml
+#   kubectl --context gke_team-echo-final_asia-northeast3-a_echo-dev-gke -n ingress-nginx get svc ingress-nginx-entry-c   # EXTERNAL-IP → entrypoint_c_upstreams.gcp
+# 되돌리기: kubectl ... delete -f 이 파일 (LB·방화벽이 같이 지워진다)
+# 인프라 16(고객 전용 클러스터)으로 ingress-nginx 를 옮기면 이 Service 도 그 클러스터에 적용한다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingress-nginx-entry-c
+  namespace: ingress-nginx
+  labels:
+    app.kubernetes.io/part-of: echo-entrypoint
+    managed-by: jimin-manual
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local # 클라이언트 IP(c 의 EIP) 보존 — 내부 LB 와 같은 설정
+  loadBalancerSourceRanges:
+    - 203.0.113.10/32 # ← 진입점 c EIP/32 로 바꾼다 (aws/dev 출력 entrypoint_c_ip)
+  selector:
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/component: controller
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
