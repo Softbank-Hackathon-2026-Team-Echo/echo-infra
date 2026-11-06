@@ -62,7 +62,7 @@ docs/           # references.md · adr/ · design/
 # 도구: terraform 1.16.4, tflint, AWS CLI v2
 aws configure --profile echo          # 본선 계정 키 (본인 터미널에서)
 export AWS_PROFILE=echo
-aws sts get-caller-identity           # 계정 706878591119 확인
+aws sts get-caller-identity           # 계정 <ACCOUNT_ID> 확인
 
 gcloud auth login                     # 본선 GCP 프로젝트가 있는 구글 계정
 gcloud auth application-default login # Terraform 이 쓰는 ADC

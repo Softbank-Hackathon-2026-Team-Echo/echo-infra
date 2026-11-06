@@ -80,12 +80,12 @@ echo-was 환경 행(`environments.config`)과 설정에 넣을 값. 주소·ARN 
 |---|---|---|---|
 | aws 환경 | `ingressDomain` | `aws-tokyo.echoport.uk` | AWS dev `var.apps_domain` |
 | aws 환경 | `ingressGroup` | `echo-apps` | `cluster-addons/eks/anchor-ingress.yaml` |
-| aws 환경 | `certificateArn` | `arn:aws:acm:ap-northeast-1:706878591119:certificate/a3bc8739-5af0-43d9-b7ad-64e64639dfe8`(ISSUED 뒤에 넣는다) | `acm.tf` 출력 `acm_apps_certificate_arn` |
+| aws 환경 | `certificateArn` | `arn:aws:acm:ap-northeast-1:<ACCOUNT_ID>:certificate/<CERT_ID>`(ISSUED 뒤에 넣는다) | `acm.tf` 출력 `acm_apps_certificate_arn` |
 | aws 환경 | `roleArn` | 비움 → 설정 `EXECUTOR_AWS_ROLE_ARN` = `executor_role_arn` 출력값 | §2 |
 | gcp 환경 | `clusterLocation` | `asia-northeast3-a` | gcp-outputs |
 | gcp 환경 | `ingressDomain` | `gcp-seoul.echoport.uk` | `cluster-addons/gke` |
 | 설정 | `PUBLIC_BASE_DOMAIN` | `echoport.uk` | — |
-| 설정 | `IMAGE_REGISTRY_MIRRORS` | `asia-northeast3-docker.pkg.dev/team-echo-final/echo=706878591119.dkr.ecr.ap-northeast-1.amazonaws.com/echo` | §1 |
+| 설정 | `IMAGE_REGISTRY_MIRRORS` | `asia-northeast3-docker.pkg.dev/team-echo-final/echo=<ACCOUNT_ID>.dkr.ecr.ap-northeast-1.amazonaws.com/echo` | §1 |
 | 설정 | `BUILD_GITHUB_WORKFLOW` | `customer-build.yml`(echo-was PR #39) | §1 |
 | GSA | AR `echo` 읽기 | `google_artifact_registry_repository_iam_member.control_plane_reader`(온프레 받기 자격용, P6) | control-plane.tf |
 

@@ -21,11 +21,11 @@ infra-7·8 에서 로컬로 검증한 논리 복제·컷오버·롤백을 **실�
   - pg_hba 마지막 줄 `host all all all scram-sha-256` → NLB 경유 접속을 비밀번호로 받는다.
   - PgBouncer ini = emptyDir(패치 적용). `repoint` 의 `sed -i` + `RELOAD` 동작 확인.
   - AWS Load Balancer Controller 실행 중.
-  - **NLB 적용(11/4 이도현)**: `echo-pg-external` → `echo-dev-pg-a-cb5bc23aab2d0c23.elb.ap-northeast-1.amazonaws.com:5432`. `active`, 대상(ip) healthy, 보안 그룹 5432 인바운드 = `34.64.211.218/32` 하나, 로컬 PC(허용 밖) 접속 차단 확인. `preserve_client_ip=false` 라 Postgres 에는 NLB 내부 IP 로 보인다.
+  - **NLB 적용(11/4 이도현)**: `echo-pg-external` → `<DB_NLB_HOST>:5432`. `active`, 대상(ip) healthy, 보안 그룹 5432 인바운드 = `<GCP_NAT_IP>/32` 하나, 로컬 PC(허용 밖) 접속 차단 확인. `preserve_client_ip=false` 라 Postgres 에는 NLB 내부 IP 로 보인다.
   - `app` DB 에 **테이블 없음** — 시연 앱이 아직 이 DB 를 쓰지 않는다.
 - 서울 B (GKE `echo-dev-gke`, 서동옥 11/4 02:10 구축, 직접 조회 안 함)
   - Postgres 17.11 + TLS + PgBouncer. 지금은 PgBouncer 가 B 자신을 본다.
-  - 역방향용 LB `echo-pg-external` `34.22.85.222:5432` ← AWS NAT `18.180.171.76/32` 만.
+  - 역방향용 LB `echo-pg-external` `<GCP_PG_LB_IP>:5432` ← AWS NAT `<AWS_NAT_IP>/32` 만.
 - 시연 앱(echo-demo-app) 스키마 = `demo.seq_write`(`sql/schema.sql`). `subscribe.sh` 가 같은 DDL 을 B 에 선반영한다.
 - 논리 복제는 시퀀스·DDL 을 옮기지 않는다. 시퀀스는 `cutover.sh`·`rollback.sh` 가 `demo.seq_write` 기준으로 맞춘다.
 
@@ -50,15 +50,15 @@ infra-7·8 에서 로컬로 검증한 논리 복제·컷오버·롤백을 **실�
 
 ```
 [EKS 도쿄 A]                                         [GKE 서울 B]
- echo-pg ── NLB echo-dev-pg-a :5432 ◀── TLS ── GCP NAT 34.64.211.218 ── echo-pg (echo_sub 구독)
-        └─ 허용: 34.64.211.218/32                                          echo-pgbouncer → A(컷오버 전)
- echo-pg ── AWS NAT 18.180.171.76 ── TLS ──▶ LB 34.22.85.222 :5432 ── echo-pg (롤백용 역방향)
+ echo-pg ── NLB echo-dev-pg-a :5432 ◀── TLS ── GCP NAT <GCP_NAT_IP> ── echo-pg (echo_sub 구독)
+        └─ 허용: <GCP_NAT_IP>/32                                          echo-pgbouncer → A(컷오버 전)
+ echo-pg ── AWS NAT <AWS_NAT_IP> ── TLS ──▶ LB <GCP_PG_LB_IP> :5432 ── echo-pg (롤백용 역방향)
 ```
 
 | # | 단계 | 담당 | 확인 |
 |---|---|---|---|
 | 1 | `kubectl apply -k aws-tokyo` (NLB 포함, 라벨 `echo/managed-by=dohyun-manual` 은 파일에 있음) — ✅ 11/4 | 이도현 | NLB `active`, DNS 발급, `diff -k` 빈 출력 |
-| 2 | NLB 보안 그룹 확인 | 이도현 | 5432 인바운드 = `34.64.211.218/32` 하나 |
+| 2 | NLB 보안 그룹 확인 | 이도현 | 5432 인바운드 = `<GCP_NAT_IP>/32` 하나 |
 | 3 | 허용 목록 밖(로컬 PC)에서 접속 시도 | 이도현 | **연결 실패가 정상** |
 | 4 | NLB DNS 를 #32 에 기록, `repl_user` 비밀을 B Secret 으로 전달 | 이도현 → 서동옥 | 비밀은 이슈·Slack 공개 채널에 쓰지 않는다 |
 | 5 | B 에서 A 접속 시험 `psql "host=<NLB> dbname=app user=repl_user sslmode=require"` | 서동옥 | TLS 접속 성공 |
@@ -79,7 +79,7 @@ infra-7·8 에서 로컬로 검증한 논리 복제·컷오버·롤백을 **실�
 
 ## 6. 위험 · 확인할 것
 
-- **GCP NAT 가정**: B Postgres(구독)와 echo-was 가 `34.64.211.218` 로 나간다는 전제. 틀리면 5번에서 접속이 막힌다 → 허용 목록을 고친다.
+- **GCP NAT 가정**: B Postgres(구독)와 echo-was 가 `<GCP_NAT_IP>` 로 나간다는 전제. 틀리면 5번에서 접속이 막힌다 → 허용 목록을 고친다.
 - **앱이 PgBouncer 를 안 거치면** PAUSE 로 쓰기가 멈추지 않아 무손실이 깨진다. 7번 전에는 리허설을 `writer.sh`(스크립트 쓰기)로만 한다.
 - **스키마 변경**: 논리 복제는 DDL 을 옮기지 않는다. 시연 앱 스키마가 `demo.seq_write` 밖으로 늘면 `subscribe.sh`·시퀀스 맞춤·`verify.sh` 를 같이 고친다.
 - `common.sh` 의 `PATH`(Homebrew gcloud)·`B_CTX` 는 실행자 PC 기준이다. Windows 에서는 따로 맞춘다.

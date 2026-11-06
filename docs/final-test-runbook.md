@@ -14,7 +14,7 @@
 |---|---|---|
 | 복제 | A: `pg_stat_replication` · `replication/k8s/scripts/verify.sh` | `echo_sub` streaming, 지연 0, A = B, 누락 0·중복 0 |
 | PgBouncer | 두 클러스터 `grep '^app = ' /etc/pgbouncer/pgbouncer.ini` · `SHOW DATABASES` | A → `echo-pg`, B → A NLB, paused 0 |
-| 진입점 | `http://34.158.202.103/__entry/healthz`, `http://8.230.16.205/__entry/healthz`, admin `/clusters` | 둘 다 200, aws·gcp 업스트림 healthy, 가중치 aws=100(a·b 동일) |
+| 진입점 | `http://<ENTRY_A_IP>/__entry/healthz`, `http://<ENTRY_B_IP>/__entry/healthz`, admin `/clusters` | 둘 다 200, aws·gcp 업스트림 healthy, 가중치 aws=100(a·b 동일) |
 | 앱 | `https://demo-y6cz3jrc.echoport.uk/readyz` + 환경별 주소 3개 | 전부 200 |
 | 관제탑 | echo-was `/healthz`, 대시보드 환경 카드 | 3환경 CONNECTED |
 | 관측 | Grafana 「Echo 고정 진입점」·「세 환경 한 그래프」 | 최근 5분 데이터 있음, 수집기 3곳 Running |
@@ -29,7 +29,7 @@
 |---|---|---|---|---|
 | 1 | 부하 켜기 `make loadgen-on` | 인프라 | 50 rps, 5xx 0 | Grafana rps |
 | 2 | **Echo 이전 aws→gcp** (10→50→100%) | 대시보드 | ~10초, 실패 0, 데이터 확인 = A `echo_sub` 지연 0 | 대시보드 진행 화면, Grafana 교차 |
-| 3 | **DB 컷오버 A→B** — Job(`echo-ops`, 12.2 적용 뒤) 또는 `B_HOST=34.22.85.222 scripts/cutover.sh` | 인프라 | 쓰기 정지 6~9초, `echo_sub_rev` streaming, 누락 0·중복 0 | 터미널 + `echo_ops.cutover_runs` → 결과 화면 |
+| 3 | **DB 컷오버 A→B** — Job(`echo-ops`, 12.2 적용 뒤) 또는 `B_HOST=<GCP_PG_LB_IP> scripts/cutover.sh` | 인프라 | 쓰기 정지 6~9초, `echo_sub_rev` streaming, 누락 0·중복 0 | 터미널 + `echo_ops.cutover_runs` → 결과 화면 |
 | 4 | (선택) 재난: A NLB 차단 → EMERGENCY 이전 → promote | 12.x 범위, 리허설 결과 보고 결정 | | |
 | 5 | **Echo 복귀 gcp→aws** (Start failback) | 대시보드 | ~9초, 실패 0, 데이터 확인 = B `echo_sub_rev` 지연 0 | 같음 |
 | 6 | **DB 롤백 B→A** `A_HOST=<A NLB> scripts/rollback.sh` | 인프라 | 복귀 ~10초, 원본 상태로 | 터미널 + 결과 표 |
@@ -40,7 +40,7 @@
 
 ## 3. 진입점 페일오버 (인프라 5.1, 11/6 측정)
 
-전제: Cloudflare `*.echoport.uk` A 레코드 두 개(34.158.202.103, 8.230.16.205, 둘 다 프록시).
+전제: Cloudflare `*.echoport.uk` A 레코드 두 개(<ENTRY_A_IP>, <ENTRY_B_IP>, 둘 다 프록시).
 
 ```bash
 HOST=demo-y6cz3jrc.echoport.uk DURATION=120 entrypoint/scripts/failover-probe.sh   # 창 1

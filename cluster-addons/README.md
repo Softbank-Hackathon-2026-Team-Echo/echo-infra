@@ -7,15 +7,15 @@ echo-was 실제 배포 실행기(`EXECUTOR_MODE=real`)는 앱마다 Ingress 를 
 | GKE 서울 | ingress-nginx (class `nginx`), **내부** L4 LB | `gke/ingress-nginx-values.yaml` | 설치 뒤 `kubectl -n ingress-nginx get svc ingress-nginx-controller` 의 EXTERNAL-IP(10.60.x.x) |
 | EKS 도쿄 | ALB 그룹 `echo-apps` 닻 Ingress (class `alb`), 공개 ALB 이지만 **진입점 VM·GKE NAT 만 허용** | `eks/anchor-ingress.yaml` | `kubectl -n echo-apps-anchor get ingress anchor` 의 ADDRESS |
 
-왜 내부·제한인가: 앱(echo-demo-app)에 인증이 없다. 손님은 모두 진입점(34.158.202.103)으로 들어오고, 환경별 주소는 일꾼의 헬스체크가 VPC·NAT 안에서 부른다. 공개가 필요해지면 GKE 는 annotation 한 줄, EKS 는 `inbound-cidrs` 한 줄을 바꾼다(동옥 확인 뒤).
+왜 내부·제한인가: 앱(echo-demo-app)에 인증이 없다. 손님은 모두 진입점(<ENTRY_A_IP>)으로 들어오고, 환경별 주소는 일꾼의 헬스체크가 VPC·NAT 안에서 부른다. 공개가 필요해지면 GKE 는 annotation 한 줄, EKS 는 `inbound-cidrs` 한 줄을 바꾼다(동옥 확인 뒤).
 
 ## 적용된 값 (2026-11-03 밤, 동옥)
 
 | 항목 | 값 | 상태 |
 |---|---|---|
 | GKE ingress-nginx 내부 IP | `10.60.0.8` | 설치됨, 진입점 VM 에서 404 확인 |
-| EKS 닻 ALB | `echo-dev-apps-1403429363.ap-northeast-1.elb.amazonaws.com` | 80·443(ACM), SG 는 34.158.202.103·34.64.211.218 |
-| ACM `*.aws-tokyo.echoport.uk` | `arn:aws:acm:ap-northeast-1:706878591119:certificate/a3bc8739-5af0-43d9-b7ad-64e64639dfe8` | 11/3 23:33 ISSUED, 11/4 닻 Ingress 443 적용. 진입점 VM 에서 `https://probe.aws-tokyo.echoport.uk/` 404 + Amazon 인증서 확인 |
+| EKS 닻 ALB | `<ALB_HOST>` | 80·443(ACM), SG 는 <ENTRY_A_IP>·<GCP_NAT_IP> |
+| ACM `*.aws-tokyo.echoport.uk` | `arn:aws:acm:ap-northeast-1:<ACCOUNT_ID>:certificate/<CERT_ID>` | 11/3 23:33 ISSUED, 11/4 닻 Ingress 443 적용. 진입점 VM 에서 `https://probe.aws-tokyo.echoport.uk/` 404 + Amazon 인증서 확인 |
 | cert-manager 와일드카드 | `ingress-nginx/wildcard-gcp-seoul-tls` | 적용됨(지민). 진입점 VM 에서 `https://probe.gcp-seoul.echoport.uk/` 404 + Let's Encrypt 인증서 확인 |
 
 진입점 업스트림은 11/4 01:30 공유 문으로 바꿨다(`aws` = 닻 ALB:80, `gcp` = 10.60.0.8:80, Envoy 가 본 healthy aws 2·gcp 1). 그 뒤로 진입점으로 오는 요청은 실행기가 올린 앱 Ingress 에만 닿고, 수동 `demo-app/` 은 더 쓰지 않는다(실제 배포가 한 번 성공한 뒤 내린다). 닻의 `/healthz` 는 Envoy 헬스체크용 고정 200 이다.

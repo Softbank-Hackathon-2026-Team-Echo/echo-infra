@@ -21,11 +21,11 @@
 - 네임스페이스: 관제탑 `echo-was`(api·worker·`echo-db` StatefulSet), `echo-ops`(컷오버 Job), `echo-loadgen`, `echo-otel` / 고객 쪽 `demo-y6cz3jrc`(app 1), `shap-api-5eyf1kkb`(워크로드 0), `ingress-nginx`, `cert-manager`, `echo-data`(Postgres B `echo-pg` StatefulSet + `echo-pgbouncer`, PVC 10Gi).
 - 부하 분산기:
   - ingress-nginx **내부 L4 LB `10.60.0.8`**(80·443, `*.gcp-seoul.echoport.uk` 와일드카드 LE 인증서). 진입점 Envoy 업스트림이 `gcp=10.60.0.8:80`(진입점 VM 메타데이터, tfvars `entrypoint_upstreams`).
-  - Postgres B **외부 L4 LB `34.22.85.222:5432`**(`loadBalancerSourceRanges` AWS NAT 18.180.171.76/32, 역방향 구독·`cutover.sh` 의 `B_HOST`).
-  - 관제탑 GCLB `136.82.228.110`(`api.echoport.uk`) — 이번 범위 밖, 그대로.
+  - Postgres B **외부 L4 LB `<GCP_PG_LB_IP>:5432`**(`loadBalancerSourceRanges` AWS NAT <AWS_NAT_IP>/32, 역방향 구독·`cutover.sh` 의 `B_HOST`).
+  - 관제탑 GCLB `<API_GCLB_IP>`(`api.echoport.uk`) — 이번 범위 밖, 그대로.
 - echo-was 의 환경 접속 정보: **DB `environments.config`(JSON)** — gcp 는 `projectId`·`region`·`clusterName`·`clusterLocation`·`ingressDomain`·`ingressClass`, 비밀값 없음. 실행기(`app/executors/kubernetes/access.py`)가 GSA `echo-dev-echo-was` 메타데이터 토큰으로 GKE API `projects/{p}/locations/{위치}/clusters/{이름}` 에서 endpoint·CA 를 받는다. GSA 는 **프로젝트 단위 `roles/container.developer`**(Terraform 밖, 손으로 부여)라 같은 프로젝트 새 클러스터에도 바로 닿는다. 바꾸는 방법은 `PATCH /environments/{id}` 의 `config` 전체 교체(접속 상태가 UNCHECKED 로 돌아가 다시 확인).
 - echo-was 데이터 확인(DATA_SYNC_CHECK): `deploy/base.yaml` ConfigMap `DATA_SYNC_DATABASES` 의 gcp 값이 **클러스터 안 DNS `echo-pg.echo-data.svc.cluster.local:5432/echo_sub`**. 클러스터를 나누면 닿지 않는다 → 바꿔야 한다(5절 3).
-- 논리 복제: B 구독 `echo_sub` → A NLB(`echo-dev-pg-a-….elb…:5432`, GCP NAT 34.64.211.218/32 만, TLS require). 역방향 `echo_sub_rev` 는 A → B 외부 LB(컷오버 창 안에서 생성). 컷오버 Job 은 `echo-ops` KSA 가 **같은 클러스터의** `echo-data` Role 로 `kubectl exec` 한다(`replication/cutover-job/manifests/gke-binding.yaml`).
+- 논리 복제: B 구독 `echo_sub` → A NLB(`echo-dev-pg-a-….elb…:5432`, GCP NAT <GCP_NAT_IP>/32 만, TLS require). 역방향 `echo_sub_rev` 는 A → B 외부 LB(컷오버 창 안에서 생성). 컷오버 Job 은 `echo-ops` KSA 가 **같은 클러스터의** `echo-data` Role 로 `kubectl exec` 한다(`replication/cutover-job/manifests/gke-binding.yaml`).
 - state 버킷 `echo-tfstate-team-echo-final` 버전 관리 켜짐(롤백 근거).
 
 ## 3. 무엇을 옮기나
@@ -41,7 +41,7 @@
 
 - 스위치 `customer_gke_enabled`(기본 **false**) — 병합만으로는 아무것도 생기지 않는다(plan `No changes` 확인).
 - 같은 프로젝트·같은 VPC `echo-dev` 에 **새 서브넷** `echo-dev-customer-asia-northeast3` `10.63.0.0/20`, 파드 `10.64.0.0/16`, 서비스 `10.65.0.0/20`, 컨트롤 플레인 `172.16.0.16/28`. 기존 서브넷·`network.tf` 는 바꾸지 않는다(대역 표 `contracts/aws-outputs.md` 에 한 줄 추가).
-- Cloud NAT 는 `ALL_SUBNETWORKS_ALL_IP_RANGES` 라 새 서브넷도 **같은 NAT IP 34.64.211.218** 로 나간다 → AWS 쪽 A NLB·ALB 허용 목록 변경 없음.
+- Cloud NAT 는 `ALL_SUBNETWORKS_ALL_IP_RANGES` 라 새 서브넷도 **같은 NAT IP <GCP_NAT_IP>** 로 나간다 → AWS 쪽 A NLB·ALB 허용 목록 변경 없음.
 - 방화벽: 기존 `echo-dev-internal`(출발지 = 관제탑 대역)로 진입점·관제탑 → 고객 클러스터(내부 LB·DB)는 열린다. 고객 대역 → 관제탑은 막힌 채로 두고, `echo-dev-customer-to-entry-metrics`(고객 노드·파드 → 태그 `entrypoint` tcp 9090)만 더한다.
 - 클러스터 `echo-dev-customer-gke`: 존 클러스터, 비공개 노드, Workload Identity, Dataplane V2, 릴리스 채널 = 관제탑과 같은 변수(RAPID), `min_master_version 1.36.5-gke.1982000`, 정비 창 매일 03:00~07:00 KST, `demo-freeze`(NO_UPGRADES, ~2026-11-08T14:59Z — 지난 시각이면 `""`). Secret Manager CSI 는 켜지 않는다(고객 비밀은 echo-was 가 넣는 네임스페이스 Secret).
 - 노드 풀 `customer`: e2-standard-2, 1~2대(자동 확장), 디스크 30GB pd-balanced, 전용 노드 SA `echo-dev-customer-gke-node`(관제탑 노드 SA 와 같은 최소 5역할), surge 1 / unavailable 0.
@@ -94,7 +94,7 @@
 | 2·4 | 환경 `PATCH config` `clusterName: echo-dev-gke` 로 되돌림 → 예전 네임스페이스가 그대로 있어 재배포 불필요(필요하면 같은 commitSha 재배포) | 5분 |
 | 3·3b | `DATA_SYNC_DATABASES` 원래 값 PR · B 는 6절 (a) 였으면 예전 B 에 `subscribe.sh` 재구독, (b) 였으면 새 구독만 DROP | 15~30분 |
 | 5 | tfvars `entrypoint_upstreams.gcp = "10.60.0.8:80"` → apply → b·a 순 startup 재실행 | 10분 |
-| 전체 | 예전 네임스페이스·LB(10.60.0.8, 34.22.85.222)를 **7단계 전까지 지우지 않는다** — 위 네 줄만으로 원상 | 30~45분 |
+| 전체 | 예전 네임스페이스·LB(10.60.0.8, <GCP_PG_LB_IP>)를 **7단계 전까지 지우지 않는다** — 위 네 줄만으로 원상 | 30~45분 |
 
 ## 9. 비용 (목표 ≈ $4/일 이하) — 공개 가격 근사, 청구서로 미검증
 
