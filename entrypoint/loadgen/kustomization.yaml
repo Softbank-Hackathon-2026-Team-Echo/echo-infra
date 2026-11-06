@@ -10,10 +10,11 @@ configMapGenerator:
       - loadgen.js
   - name: loadgen-config
     literals:
-      # 진입점 공인 주소(terraform output entrypoint_ip). 내부 IP 가 아니라 공인 주소로 보내 고객 경로를 그대로 탄다.
-      - TARGET_URL=http://34.158.202.103
-      # 시연 앱의 고정 주소. 진입점 뒤 ALB·GKE 인그레스는 Host 로 앱을 고른다.
-      - TARGET_HOST=shop.echoport.uk
+      # 진입점 앞단 헬스체크 LB(terraform output entrypoint_lb_ip, 인프라 5.3). 평소 a, a 장애 시 b 로 가서 고객 경로와 같다.
+      - TARGET_URL=http://34.158.197.107
+      # 시연 앱(echo-was 실제 실행기 배포, 대표 주소 {서비스}-{8자}). 진입점 뒤 ALB·GKE 인그레스는 Host 로 앱을 고른다.
+      # 11/6 전엔 옛 데모앱 shop.echoport.uk 였는데 그 앱이 없어 404 만 냈다.
+      - TARGET_HOST=demo-y6cz3jrc.echoport.uk
       - TARGET_PATH=/
       - RATE=50
 generatorOptions:
