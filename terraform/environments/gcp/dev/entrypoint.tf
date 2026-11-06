@@ -10,6 +10,9 @@ locals {
     for p in setunion(
       fileset(local.entry_src, "docker-compose.yml"),
       fileset(local.entry_src, "weights-api/*"),
+      # 요청 기록(인프라 12.4). compose 가 journal/ 을 빌드하므로 빠지면 VM 의 compose up 이 실패한다. 시험(tests/·test_*.py)은 싣지 않는다.
+      fileset(local.entry_src, "journal/Dockerfile"),
+      fileset(local.entry_src, "journal/app.py"),
       fileset(local.entry_src, "config/**"),
       fileset(local.entry_src, "scripts/render-prometheus-web.sh"),
     ) : p => file("${local.entry_src}/${p}")
