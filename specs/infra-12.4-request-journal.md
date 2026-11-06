@@ -1,6 +1,6 @@
 # 인프라·이전 엔진 12.4: 진입점 요청 기록 + 승격 때 재생
 
-- 상태: 구현 (2026-11-06, 로컬 시험 통과 · 운영 적용 전, 모두 기본 꺼짐)
+- 상태: 운영 적용 중 (2026-11-06 — 진입점·DB 칸 적용, 필터는 꺼짐 · 시연 앱 배포·재생 시험 전)
 - 확인일: 2026-11-05
 - 노션: [split brain 문제 해결](https://app.notion.com/p/40f8bee9ada4801292d7ddc09211cb46) (해결 방안 b)
 - GitHub 이슈: (만들 예정) · 상위 #12 · 관련 #68(12.3 승격) · 짝 SPEC echo-demo-app `specs/infra-12.4-idempotent-writes.md`
@@ -161,3 +161,15 @@ promote-with-replay.sh   (REPLAY_ON_PROMOTE=false 면 promote.sh 만 exec — �
 | 지연(로컬 Docker Desktop, 쓰기 30번 p95) | 필터 꺼짐 9.2ms · 켬 27.2ms → 운영 VM 에서 다시 잼 |
 
 남은 것: 운영 적용(진입점 재배포 · 서울 B → 도쿄 A 순 `request_id` 칸 · 앱 배포 · 스위치), 컷오버 Job 안에서 재생(VAP 가 지금은 `PLAN_ID`·`KIND`·`ALLOW_PROMOTE` 만 허용 → `JOURNAL_*`·`REPLAY_BASE` 를 넘기려면 VAP·Secret 추가가 필요).
+
+## 10. 운영 적용 기록 (2026-11-06, 이도현)
+
+| 시각 | 무엇 | 확인 |
+|---|---|---|
+| 16:44 | gcp/dev apply (tfvars Notion v2 = v1 + `entrypoint_journal_enabled = true`, #85·#86·#87) — Secret `journal-token` + IAM 2 추가, 두 VM 시작 스크립트만 변경 | plan 추가 3 · 변경 2 · 삭제 0, 바뀐 속성 `metadata.startup-script` 만(지운 줄 0) |
+| 16:45~16:48 | 시작 스크립트 다시 실행 b → a. Envoy 는 compose 가 다시 만들지 않아 `--force-recreate --no-deps envoy` 를 손으로 | 두 VM healthz 200, journal healthy, 런타임 `journal.enabled=0`(꺼짐), a `JOURNAL_ENABLED=true`·b `false`, 외부 readyz 200 |
+| 16:50 | `scripts/add-request-id.sh` — `request_id` 칸·색인 서울 B → 도쿄 A | 쓰기 n=173 양쪽 173건, `echo_sub` streaming |
+| 16:54 | gcp/dev apply #88(envoy.yaml 바뀌면 Envoy 다시 만들기) | plan 변경 2, 시작 스크립트 +7줄 |
+| 16:54~16:59 | ⚠ Windows 체크아웃의 CRLF 가 메타데이터에 실려 시작 스크립트가 `bash` 로 실패(재부팅 없음, 컨테이너 그대로, 외부 readyz 200) | 16:59 LF 로 다시 apply(`` 1312 → 0, 나머지 동일) → b → a 시작 스크립트 exit 0, `.envoy.sha256` 생성. 재발 방지 #89(`eol=lf`) |
+
+남은 것: 시연 앱 새 이미지 + `IDEMPOTENT_WRITES=true`(Echo 플랫폼 배포), 재생 시험(기록 켬 → 도쿄 `echo-pg` 0 → `promote-with-replay.sh` → 되돌리기).
