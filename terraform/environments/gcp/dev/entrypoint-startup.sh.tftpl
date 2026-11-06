@@ -111,4 +111,11 @@ umask 022
 # 5. 올리기
 cd "$ROOT"
 docker compose up -d --build --remove-orphans
+# Envoy 는 envoy.yaml 을 시작할 때만 읽는다. compose 정의가 같으면 위 명령이 Envoy 를 다시 만들지 않으므로,
+# 내용이 바뀌었을 때만 다시 만든다(11/6 인프라 12.4 반영 때 확인 — 새 필터가 안 실렸다). 몇 초 끊긴다(앞단 LB 가 다른 VM 으로).
+ENVOY_SUM=$(sha256sum config/envoy/envoy.yaml | cut -d' ' -f1)
+if [ "$(cat .envoy.sha256 2>/dev/null)" != "$ENVOY_SUM" ]; then
+  if [ -f .envoy.sha256 ]; then docker compose up -d --force-recreate --no-deps envoy && log "envoy.yaml 바뀜 → Envoy 다시 만듦"; fi
+  echo "$ENVOY_SUM" > .envoy.sha256
+fi
 log "완료: http://$(curl -sf -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)/__entry/healthz"
