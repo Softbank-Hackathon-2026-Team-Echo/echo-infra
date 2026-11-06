@@ -1,6 +1,6 @@
 # 인프라·이전 엔진 12.2: 컷오버 Job — 이미지 · 전용 신원 · RBAC · VAP
 
-- 상태: 구현 (로컬 시험 통과, 운영 적용 전)
+- 상태: 운영 적용 (11/6 — 이미지 push·매니페스트 B·A apply, Job 실행 시험 전)
 - 확인일: 2026-11-05
 - 노션 계획서: https://app.notion.com/p/DB-infra-12-40f8bee9ada480b69563c0e7f643b1c3 (3절 안 C, 4-2절 I1~I3)
 - GitHub 이슈: echo-infra #67 · 상위 #12 · 결정 #65(① 안 C — 서동옥·김형래 11/5 동의)
@@ -25,7 +25,7 @@
 ### 제외
 - echo-was 쪽 Job 생성·판정(echo-was#75)
 - echo-was 실행기 권한 축소(`container.developer`·EKS ClusterAdmin) → #24 후속(마감 뒤, 서동옥·김형래 합의)
-- 운영 apply·이미지 push(서동옥 님 확인 뒤, README "적용")
+- ~~운영 apply·이미지 push~~ → 11/6 적용, 적용 파일은 `replication/cutover-job/deploy/`(README "운영 적용 기록")
 
 ## 3. 완료 기준 (이슈 #67)
 

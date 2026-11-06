@@ -1,0 +1,8 @@
+# B(서울 GKE) 컷오버 Job 전체: kubectl --context gcp-seoul apply -k replication/cutover-job/deploy/gcp-seoul
+# 바꾸기 전 확인: kubectl --context gcp-seoul diff -k replication/cutover-job/deploy/gcp-seoul → 빈 출력이면 코드 = 클러스터.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - echo-data-rbac.yaml
+  - echo-ops.yaml
+  - gke-binding.yaml

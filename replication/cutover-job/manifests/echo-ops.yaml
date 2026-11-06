@@ -1,5 +1,5 @@
 # B(서울 GKE)에만: 컷오버 Job 이 도는 네임스페이스, Job 신원(KSA), echo-was 가 Job 을 만들고 읽는 권한, Job 모양을 고정하는 VAP.
-# 자리 표시 두 개는 README "적용"의 명령이 채운다:
+# 자리 표시 두 개는 deploy/render.sh 가 deploy/values.env 로 채운다(운영 적용 파일 = deploy/gcp-seoul/echo-ops.yaml):
 #   __CUTOVER_GSA__   = terraform gcp/dev output cutover_service_account_email (Workload Identity 로 Google ID 토큰을 받는다)
 #   __CUTOVER_IMAGE__ = Artifact Registry 의 컷오버 이미지, 반드시 @sha256 digest
 apiVersion: v1
