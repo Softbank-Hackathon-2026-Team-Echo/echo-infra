@@ -9,6 +9,7 @@
 | `zone` | 운영자 | `asia-northeast3-a` | 코드 (11/2) |
 | `gke_cluster_name` | echo-was `gcp` 환경 config, Argo CD | `echo-dev-gke` | 코드 (11/2) |
 | `gke_cluster_endpoint` | Argo CD, AI 에이전트(읽기) | `https://…` | 코드 (11/2) |
+| `customer_gke_cluster_name` / `customer_gke_cluster_endpoint` / `customer_subnet_cidr` | **echo-was gcp-seoul 환경 config** `clusterName`(인프라 16 전환 단계 2). `customer_gke_enabled = false` 면 null | `echo-dev-customer-gke` / `https://…` / `10.63.0.0/20` | 코드 (11/7, 미적용) |
 | `network_name` | 복제·VPN | `echo-dev` | 코드 (11/2) |
 | `subnet_cidr` / `pods_cidr` / `services_cidr` | 복제·VPN (겹침 확인) | `10.60.0.0/20` / `10.61.0.0/16` / `10.62.0.0/20` | 코드 (11/2) |
 | `nat_ip` | **AWS 쪽 PostgreSQL 복제 허용 목록(보안 그룹)** | `34.x.x.x` | 코드 (11/2) |
