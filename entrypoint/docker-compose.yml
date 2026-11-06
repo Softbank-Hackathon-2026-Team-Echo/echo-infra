@@ -25,6 +25,22 @@ services:
     ports:
       - "${WEIGHTS_API_PORT:-8080}:8080"
 
+  # 요청 기록(인프라 12.4). 기본 꺼짐: JOURNAL_ENABLED=false + Envoy journal.enabled=0.
+  # 확인 포트 8081 은 도커 네트워크 안에서만(밖에 열면 가짜 쓰기를 기록에 넣을 수 있다). 관리 포트 8082 만 연다.
+  journal:
+    build: ./journal
+    image: echo-entry-journal:local
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      JOURNAL_TOKEN: ${JOURNAL_TOKEN:-}
+      JOURNAL_ENABLED: ${JOURNAL_ENABLED:-false}
+      JOURNAL_RETENTION_SECONDS: ${JOURNAL_RETENTION_SECONDS:-900}
+    volumes:
+      - journal-data:/data
+    ports:
+      - "${JOURNAL_ADMIN_PORT:-8082}:8082"
+
   envoy:
     image: envoyproxy/envoy:v1.39.6
     restart: unless-stopped
@@ -82,6 +98,7 @@ services:
       - prometheus
 
 volumes:
+  journal-data:
   envoy-dynamic:
   prom-data:
   grafana-data:

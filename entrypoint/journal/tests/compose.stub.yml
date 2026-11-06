@@ -1,0 +1,18 @@
+# envoy-test.sh 전용: 업스트림 자리에 아주 작은 앱(stub)을 둔다. 실제 compose(entrypoint/docker-compose.yml)에 덧붙여 쓴다.
+services:
+  stub:
+    image: python:3.13-slim
+    command:
+      - python
+      - -c
+      - |
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        class H(BaseHTTPRequestHandler):
+            def _ok(self):
+                n = int(self.headers.get("Content-Length") or 0)
+                if n: self.rfile.read(n)
+                self.send_response(201 if self.command == "POST" else 200)
+                self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"ok")
+            do_GET = do_POST = do_PUT = do_DELETE = _ok
+            def log_message(self, *a): pass
+        ThreadingHTTPServer(("0.0.0.0", 8080), H).serve_forever()
