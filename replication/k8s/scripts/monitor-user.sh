@@ -37,7 +37,7 @@ printf '%s' "$pw" | kubectl --context "$B_CTX" -n "$NS" exec -i echo-pg-0 -c pos
 unset pw
 
 cat <<MSG
-echo-was 쪽 설정 힌트 (값 아님):
+echo-was 쪽 설정 참고 (값 아님):
   DATA_SYNC_CHECKER_MODE=postgres
   DATA_SYNC_DATABASES=aws=$A_HOST:5432/echo_sub_rev,gcp=echo-pg.echo-data.svc.cluster.local:5432/echo_sub
   (형식: <환경>=<그 환경 DB host>:<port>/<그 환경이 가진 구독 이름>. aws(A)가 가진 구독 = echo_sub_rev, gcp(B)가 가진 구독 = echo_sub)

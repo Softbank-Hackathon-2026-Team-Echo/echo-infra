@@ -21,7 +21,7 @@
 | 부하 | `make loadgen-off` 상태 확인 | 시연 직전에만 `make loadgen-on`(50 rps) |
 | 컷오버 결과 표 | `echo_ops.cutover_runs` 양쪽 | 읽힘(echo_monitor) |
 
-점검 명령 묶음: `scripts/preflight.sh`(없으면 위 표대로 손으로).
+점검 명령 묶음: `replication/k8s/scripts/preflight.sh` (읽기만, 19개 항목, 실패가 있으면 종료 1).
 
 ## 2. 시연 순서 (11/4 합동 리허설로 확정)
 
