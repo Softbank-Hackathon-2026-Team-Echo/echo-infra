@@ -216,5 +216,15 @@ check "writer_side" B "$(writer)"
 run env PLAN_ID=$P10 "$S/rollback.sh"; check "rollback 종료 코드" 0 $?
 check "writer_side" A "$(writer)"
 
+echo "== 20. add-request-id.sh: 사본(B) 먼저 → 원본(A), 구독은 그대로 (인프라 12.4)"
+run "$S/add-request-id.sh" --check; check "--check (없음)" 1 $?
+run "$S/add-request-id.sh"; check "종료 코드" 0 $?
+[[ $LAST_OUT == *"넣음: B"*"넣음: A"* ]] && ok "B 먼저, A 나중" || bad "순서: $LAST_OUT"
+run "$S/add-request-id.sh" --check; check "--check (있음)" 0 $?
+run "$S/add-request-id.sh"; check "다시 실행" 0 $?
+q A "INSERT INTO demo.seq_write (n, request_id) VALUES (900, 'rid-900');" >/dev/null
+wait_n B 900 && ok "칸을 넣은 뒤에도 A→B 복제" || bad "복제 멈춤"
+check "B 에 request_id 도 옴" rid-900 "$(q B "SELECT request_id FROM demo.seq_write WHERE n = 900;")"
+
 echo; echo "결과: 통과 $pass · 실패 $fail"
 [[ $fail == 0 ]]

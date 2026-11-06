@@ -82,6 +82,18 @@ if [ "${prom_rw_enabled}" = "true" ]; then
   log "Prometheus remote write 수신 켬 (basic auth 사용자 echo-otel)"
 fi
 
+# 3-c. 요청 기록 관리 토큰 (인프라 12.4). 이미 켜진 VM 도 맞추도록 .env.secrets 에 없을 때만 만든다(두 진입점 공유).
+if ! grep -q '^JOURNAL_TOKEN=' "$ROOT/.env.secrets"; then
+  JOURNAL_TOKEN=$(read_secret_latest "${secret_journal}")
+  if [ -n "$JOURNAL_TOKEN" ]; then log "journal 토큰: Secret Manager 의 기존 값 사용"; else
+    log "journal 토큰 생성"; JOURNAL_TOKEN=$(openssl rand -hex 32)
+    add_secret_version "${secret_journal}" "$JOURNAL_TOKEN"
+  fi
+  umask 077
+  printf 'JOURNAL_TOKEN=%s\n' "$JOURNAL_TOKEN" >> "$ROOT/.env.secrets"
+  umask 022
+fi
+
 # 4. .env = 비밀값 + Terraform 이 정한 값 (매 부팅 다시 쓴다)
 umask 077
 {
@@ -90,6 +102,7 @@ umask 077
 UPSTREAMS=${upstreams}
 DEFAULT_WEIGHTS=${default_weights}
 SYNC_FROM=${sync_from}
+JOURNAL_ENABLED=${journal_enabled}
 ECHO_ENV_EOF
   printf '%s\n' "$PROM_ENV"
 } > "$ROOT/.env"
