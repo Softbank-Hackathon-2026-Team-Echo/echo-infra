@@ -1,0 +1,14 @@
+# 생성 파일 — 고치지 말고 manifests/ 나 values.env 를 고친 뒤 render.sh 를 돌린다.
+# A(도쿄 EKS): access entry(terraform aws/dev cutover.tf)의 쿠버네티스 그룹 echo-cutover 와 echo-data Role 을 잇는다.
+# access entry 에는 클러스터 정책을 붙이지 않는다 → 이 RoleBinding 밖의 권한은 없다(보안 #24).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: echo-cutover-eks
+  namespace: echo-data
+  labels: { app.kubernetes.io/part-of: echo-cutover }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: echo-cutover }
+subjects:
+  - kind: Group
+    name: echo-cutover
+    apiGroup: rbac.authorization.k8s.io

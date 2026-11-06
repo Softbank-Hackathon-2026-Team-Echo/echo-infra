@@ -20,6 +20,8 @@ echo-was 일꾼 ──Job 생성(PLAN_ID·KIND·ALLOW_PROMOTE)──▶ echo-ops
 | `manifests/eks-binding.yaml` | A: Role ↔ 그룹 `echo-cutover`(Terraform access entry) |
 | `manifests/echo-ops.yaml` | B: 네임스페이스·KSA·echo-was 의 Job 권한·**VAP**(Job·Pod 모양 고정) |
 | `job.example.yaml` | 사람이 직접 돌릴 때의 Job 한 개 |
+| `deploy/values.env`, `deploy/render.sh` | 운영 값(GSA·이미지 digest, 비밀값 아님)과 템플릿을 채우는 스크립트 |
+| `deploy/gcp-seoul/`, `deploy/aws-tokyo/` | **운영에 올라간 그대로의** 적용 파일(생성 파일, 커밋함). `apply -k` 대상 |
 | `tests/policy-test.sh` | k3s(Docker)에서 RBAC `can-i` 와 VAP 허용·거부 시험 (보안 #24 근거) |
 
 ## 지키는 것 (보안 #24, 김형래 11/5 리뷰)
@@ -50,21 +52,31 @@ docker build -f replication/cutover-job/Dockerfile --build-arg AWS_ROLE_ARN=<cut
 docker push $AR/cutover:<git-sha>
 IMG=$(gcloud artifacts docker images describe $AR/cutover:<git-sha> --format='value(image_summary.fully_qualified_digest)')
 
-# 2) B(GKE): Role → echo-ops(네임스페이스·KSA·VAP) → 바인딩
-kubectl --context <GKE> apply -f replication/cutover-job/manifests/echo-data-rbac.yaml
-sed -e "s|__CUTOVER_GSA__|<cutover_service_account>|" -e "s|__CUTOVER_IMAGE__|$IMG|" replication/cutover-job/manifests/echo-ops.yaml | kubectl --context <GKE> apply -f -
-kubectl --context <GKE> apply -f replication/cutover-job/manifests/gke-binding.yaml
+#    → deploy/values.env 의 CUTOVER_IMAGE 를 $IMG 로, CUTOVER_GSA 를 terraform 출력으로 고친다
 
-# 3) A(EKS): Role → 그룹 바인딩
-kubectl --context <EKS> apply -f replication/cutover-job/manifests/echo-data-rbac.yaml
-kubectl --context <EKS> apply -f replication/cutover-job/manifests/eks-binding.yaml
+# 2) 적용 파일 만들기 → 커밋 (저장소 = 운영 상태)
+replication/cutover-job/deploy/render.sh          # deploy/gcp-seoul·aws-tokyo 를 다시 만든다
+replication/cutover-job/deploy/render.sh --check  # 커밋된 deploy/ 가 manifests/ + values.env 와 같은지
+
+# 3) B(GKE) → A(EKS), 저장소 파일 그대로
+kubectl --context gcp-seoul diff  -k replication/cutover-job/deploy/gcp-seoul
+kubectl --context gcp-seoul apply -k replication/cutover-job/deploy/gcp-seoul
+kubectl --context aws-tokyo diff  -k replication/cutover-job/deploy/aws-tokyo
+kubectl --context aws-tokyo apply -k replication/cutover-job/deploy/aws-tokyo
 
 # 4) 확인 (README 표의 can-i 를 운영에서도): 
 kubectl --context <GKE> auth can-i create pods --subresource=exec -n echo-data --as=system:serviceaccount:echo-ops:echo-cutover   # yes
 kubectl --context <GKE> auth can-i get secrets -n echo-data --as=system:serviceaccount:echo-ops:echo-cutover                     # no
 ```
 
-이미지를 다시 빌드하면 digest 가 바뀐다 → `echo-ops.yaml` 을 새 digest 로 다시 적용해야 Job 이 허용된다(VAP).
+이미지를 다시 빌드하면 digest 가 바뀐다 → `values.env` 를 고치고 `render.sh` → 커밋 → `apply -k` 해야 Job 이 허용된다(VAP). 터미널에서 sed 로 바로 적용하지 않는다(저장소와 운영이 달라진다).
+
+### 운영 적용 기록
+
+| 날짜 | 무엇 | 누가 | 확인 |
+|---|---|---|---|
+| 11/5 | Terraform gcp/dev(GSA·Workload Identity) · aws/dev(cutover 역할·access entry) | 서동옥 | PR #72 댓글 |
+| 11/6 | 이미지 `cutover:abc80d4` push (`sha256:fb388e62…`) · `deploy/gcp-seoul` · `deploy/aws-tokyo` apply | 이도현 | 두 클러스터 `diff -k` 빈 출력, can-i(컷오버 KSA exec·ConfigMap patch yes / secrets·kube-system no, EKS 그룹 exec yes / secrets·nodes no, echo-was jobs create yes), VAP server dry-run(정상 Job 허용 · 다른 digest·KIND 거부) |
 
 ## 시험
 
