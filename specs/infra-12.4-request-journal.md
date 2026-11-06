@@ -1,6 +1,6 @@
 # 인프라·이전 엔진 12.4: 진입점 요청 기록 + 승격 때 재생
 
-- 상태: 운영 적용 중 (2026-11-06 — 진입점·DB 칸 적용, 필터는 꺼짐 · 시연 앱 배포·재생 시험 전)
+- 상태: 운영 적용 · 운영 재생 시험 통과 (2026-11-06 17:20~17:50). 평소에는 Envoy 필터 꺼짐(journal.enabled=0)
 - 확인일: 2026-11-05
 - 노션: [split brain 문제 해결](https://app.notion.com/p/40f8bee9ada4801292d7ddc09211cb46) (해결 방안 b)
 - GitHub 이슈: (만들 예정) · 상위 #12 · 관련 #68(12.3 승격) · 짝 SPEC echo-demo-app `specs/infra-12.4-idempotent-writes.md`
@@ -170,6 +170,22 @@ promote-with-replay.sh   (REPLAY_ON_PROMOTE=false 면 promote.sh 만 exec — �
 | 16:45~16:48 | 시작 스크립트 다시 실행 b → a. Envoy 는 compose 가 다시 만들지 않아 `--force-recreate --no-deps envoy` 를 손으로 | 두 VM healthz 200, journal healthy, 런타임 `journal.enabled=0`(꺼짐), a `JOURNAL_ENABLED=true`·b `false`, 외부 readyz 200 |
 | 16:50 | `scripts/add-request-id.sh` — `request_id` 칸·색인 서울 B → 도쿄 A | 쓰기 n=173 양쪽 173건, `echo_sub` streaming |
 | 16:54 | gcp/dev apply #88(envoy.yaml 바뀌면 Envoy 다시 만들기) | plan 변경 2, 시작 스크립트 +7줄 |
-| 16:54~16:59 | ⚠ Windows 체크아웃의 CRLF 가 메타데이터에 실려 시작 스크립트가 `bash` 로 실패(재부팅 없음, 컨테이너 그대로, 외부 readyz 200) | 16:59 LF 로 다시 apply(`` 1312 → 0, 나머지 동일) → b → a 시작 스크립트 exit 0, `.envoy.sha256` 생성. 재발 방지 #89(`eol=lf`) |
+| 16:54~16:59 | ⚠ Windows 체크아웃의 CRLF 가 메타데이터에 실려 시작 스크립트가 `bash
+` 로 실패(재부팅 없음, 컨테이너 그대로, 외부 readyz 200) | 16:59 LF 로 다시 apply(`
+` 1312 → 0, 나머지 동일) → b → a 시작 스크립트 exit 0, `.envoy.sha256` 생성. 재발 방지 #89(`eol=lf`) |
 
-남은 것: 시연 앱 새 이미지 + `IDEMPOTENT_WRITES=true`(Echo 플랫폼 배포), 재생 시험(기록 켬 → 도쿄 `echo-pg` 0 → `promote-with-replay.sh` → 되돌리기).
+| 17:07~17:18 | 시연 앱 main `d82f7e7` Echo 플랫폼 배포(aws-tokyo, 예비 동기화로 gcp-seoul) + 변수 `IDEMPOTENT_WRITES=true` 두 환경 | 두 환경 revision 11. 같은 키 두 번 201 → 200(같은 n=176), 서울 앱에 같은 키 → 200, 키 복제됨 |
+
+### 운영 재생 시험 (17:20~17:50)
+
+| 시각 | 단계 | 결과 |
+|---|---|---|
+| 17:20 | 기록 켬(`runtime_modify journal.enabled=100`) → 진입점 경유 쓰기 prod-r1~r3 | journal 3건(키 포함), 양쪽 179건 |
+| 17:20 | 서울 `echo_sub` DISABLE → prod-r4·r5 (도쿄에만, n=180·181) → 도쿄 `echo-pg` replicas 0 → `echo_sub` ENABLE | 도쿄 181 · 서울 179 (**4·5 없음**) |
+| 17:21:19~45 | `REPLAY_ON_PROMOTE=true promote-with-replay.sh` (이 PC, IAP 터널 + port-forward) | hold → 승격(B 쓰기 담당) → **재생 보냄 2 · 새로 들어감 2 · 실패 0** → release. 서울 181건 누락 0, n=180·181 = prod-r4·r5 |
+| 17:22 | 가중치 gcp 100 → prod-r6~r8 | 201 ×3, n=182~184 gcp-seoul |
+| 17:22~17:48 | 도쿄 `echo-pg` replicas 1 → `resync-a.sh` | 1차: [3] `DROP SUBSCRIPTION` 이 도쿄 재기동 직후 오래 걸려 kubectl 연결이 끊김(종료 1, 구독은 이미 지워짐). 2차(다시 실행): A 전용 행 0건, A 가 B 구독, A=B=184 |
+| 17:49~17:50 | 가중치 aws 100 → prod-r9 → rollback **Job** | Complete 50초, 장부 185건 누락 0·중복 0, 복귀 정지 16.5초 |
+| 17:50 | 기록 끔(`journal.enabled=0`) | 양쪽 185건 누락 0·중복 0, writer_side A, `echo_sub` streaming, 세 매니페스트 drift 0, 외부 readyz 200 |
+
+알게 된 것: 이 PC 에 `bc` 가 없어 승격·재생 시간이 0 으로 찍힘(동작 영향 없음, Job 이미지에는 있음). `resync-a.sh` 3단계는 도쿄가 막 다시 떴을 때 오래 걸릴 수 있다 → 도쿄 NLB healthy 를 보고 시작하거나 다시 실행(멱등).
