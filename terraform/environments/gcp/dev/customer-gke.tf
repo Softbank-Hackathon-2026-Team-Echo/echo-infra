@@ -72,6 +72,17 @@ resource "google_container_cluster" "customer" {
   remove_default_node_pool = true
   initial_node_count       = 1
 
+  # 임시 기본 풀(만들자마자 지워지는 1대)의 모양. 지정하지 않으면 GKE 기본값(e2-medium, pd-balanced 100GB)이라
+  # 서울 SSD_TOTAL_GB 할당량(250)을 넘겨 클러스터 생성이 실패한다(11/7 첫 적용). pd-standard 는 SSD 할당량을 쓰지 않는다.
+  # 고객 노드 모양은 아래 google_container_node_pool.customer 가 정한다.
+  node_config {
+    machine_type    = "e2-small"
+    disk_size_gb    = 20
+    disk_type       = "pd-standard"
+    service_account = google_service_account.customer_nodes[0].email
+    oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
+  }
+
   networking_mode   = "VPC_NATIVE"
   datapath_provider = "ADVANCED_DATAPATH" # Dataplane V2: 고객 네임스페이스 NetworkPolicy
 
@@ -133,6 +144,11 @@ resource "google_container_cluster" "customer" {
   # 이 클러스터 파드가 Secret Manager 를 직접 읽지 않으므로 Secret Manager CSI·SecretSync 는 켜지 않는다.
 
   deletion_protection = false
+
+  # 기본 풀은 생성 직후 지워지므로, 그 뒤 GKE 가 돌려주는 node_config 차이로 클러스터를 교체하지 않게 한다.
+  lifecycle {
+    ignore_changes = [node_config]
+  }
 
   depends_on = [
     google_project_service.this["container.googleapis.com"],
