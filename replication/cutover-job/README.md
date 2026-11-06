@@ -77,6 +77,8 @@ kubectl --context <GKE> auth can-i get secrets -n echo-data --as=system:servicea
 |---|---|---|---|
 | 11/5 | Terraform gcp/dev(GSA·Workload Identity) · aws/dev(cutover 역할·access entry) | 서동옥 | PR #72 댓글 |
 | 11/6 | 이미지 `cutover:abc80d4` push (`sha256:fb388e62…`) · `deploy/gcp-seoul` · `deploy/aws-tokyo` apply | 이도현 | 두 클러스터 `diff -k` 빈 출력, can-i(컷오버 KSA exec·ConfigMap patch yes / secrets·kube-system no, EKS 그룹 exec yes / secrets·nodes no, echo-was jobs create yes), VAP server dry-run(정상 Job 허용 · 다른 digest·KIND 거부) |
+| 11/6 | Job 첫 실행 cutover → rollback (13:34~13:37) | 이도현 | 둘 다 Complete, 누락 0·중복 0, 쓰기 정지 17.5초·16.5초. ⚠ cutover 뒤 도쿄 앱 약 2분 503(SCRAM 검증자 차이) → #79 |
+| 11/6 | 이미지 `cutover:c3b4747` push (`sha256:cb668942…`, #79 사전 확인 포함) · `deploy/gcp-seoul` 다시 apply(VAP digest) | 이도현 | (apply 뒤 채움) |
 
 ## 시험
 
