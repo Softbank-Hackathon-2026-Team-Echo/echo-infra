@@ -103,6 +103,30 @@ CONFIRM=yes scripts/rejoin.sh          # 온프레 = 원본, B2 = 복제본으�
 - 손님 주소 전환(온프레 터널 주소를 GKE 로)은 다음 단계다. GKE 에 같은 Cloudflare 터널 연결기를 두면 온프레 연결기가 끊길 때 같은 주소가 GKE 로 간다.
 - 서울 B(`echo-data`)와 같은 클러스터라 모든 명령은 `-n echo-data-onprem` 이다.
 
+## 역방향: GCP 장애 시 온프레로 이전
+
+온프레 PG 의 별도 DB `gcpcopy` 가 서울 B 의 발행 `echo_pub`(FOR ALL TABLES)를 구독한다. 도쿄 A → 서울 B → 온프레로 이어진다.
+온프레가 서울 B 로 **나가는** 연결이라 온프레 인바운드는 늘지 않는다. 장애 시 온프레 메인 앱(`demo-y6cz3jrc/app`)이 `gcpcopy` 를 보게 바꾼다.
+
+| 위치 | 설정 (11/7) |
+|---|---|
+| 서울 B (`echo-data/echo-pg`) | 복제 계정 `repl_gcp_onprem`(REPLICATION + pg_read_all_data), `max_slot_wal_keep_size=2GB`(ALTER SYSTEM, 재시작 없음), 외부 LB `echo-pg-external` 허용 IP 에 온프레 EIP `13.124.120.121/32` 추가 |
+| 온프레 | DB `gcpcopy`(스키마는 서울 B 에서 pg_dump -s), 구독 `echo_gcp_onprem_sub`(TLS), 비밀번호 Secret `echo-demo/gcp-repl`, 앱용 Secret `demo-y6cz3jrc/gcpcopy-env` |
+
+```bash
+scripts/gcp-to-onprem.sh status                      # 구독·행 수·서울 B 와 비교
+scripts/gcp-to-onprem.sh prepare                     # 앱용 Secret (기기 안에서 DB 이름만 gcpcopy 로)
+CONFIRM=yes scripts/gcp-to-onprem.sh failover        # 구독 끄기 → 시퀀스 +1000 → 앱이 gcpcopy 를 봄
+CONFIRM=yes scripts/gcp-to-onprem.sh back            # 앱 원래 DB 로, 구독 다시 켬
+CONFIRM=yes scripts/gcp-to-onprem.sh resync          # 시험 중 쓴 행 버리고 재구독(서울 B 와 똑같이)
+```
+
+시험 (11/7 17:25~17:28 KST): failover 11.1초, 온프레 앱이 GCP 데이터 223행(빠짐·중복 0)을 보여 주고 새 쓰기 201. back·resync 뒤 서울 B 와 온프레 사본 223행·md5 일치, preflight 20/20.
+
+- 서울 B 를 실제로 끄지 않고 온프레 쪽 구독만 끊어 시험했다. 시연 경로 영향 없음.
+- 비동기라 GCP 가 갑자기 죽으면 지연만큼 마지막 쓰기를 잃을 수 있다.
+- 온프레 → 서울 B 로 데이터를 되돌리는 복귀는 범위 밖이다(시험은 resync 로 버린다).
+
 ## 주의
 
 - 스키마(DDL)는 복제되지 않는다. 온프레에 칸·표를 더하면 B2 에 먼저 더한다(예: 멱등 쓰기 `request_id`).
