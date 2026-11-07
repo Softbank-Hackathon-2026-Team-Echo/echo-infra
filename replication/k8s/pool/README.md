@@ -1,6 +1,6 @@
 # 풀 계층 — PgBouncer 를 DB 와 떼어 낸다
 
-- 상태: 매니페스트 · 컷오버 스크립트(풀 방식) · Job 권한 · 시험(11/7). **운영 적용은 아래 "옮기는 순서"대로**
+- 상태: **운영 3단계까지 적용(11/7)** — 새 풀을 옆에 띄움, 앱·컷오버는 아직 옛 PgBouncer(스크립트는 자동으로 옛 방식). 4단계부터 남음(아래 "적용 기록")
 - 작성: 이도현 · 근거: 노션 "플랫폼 · PgBouncer · DB 결합 구조 — 현재 상태와 분리안 (11/7)", 목표 그림 `echoport-architecture-target.drawio`
 
 ## 왜
@@ -110,3 +110,18 @@ A_HOST=$(kubectl --context $EKS -n echo-data get svc echo-pg-external -o jsonpat
 ## 관제탑 구독 (echo-was, 다음 작업)
 
 두 클러스터의 표지판(`pgb_backend` 와 같은 값: selector 면 자기 쪽, 아니면 `echo/writer-host`)과 PgBouncer `SHOW POOLS` 를 주기적으로 읽어 화면에 표시하고, **두 표지판이 서로 다른 DB 를 가리키면 경보**(split brain 감지). 필드 계약은 김지민과 맞춘다.
+
+## 적용 기록
+
+| 언제(11/7) | 한 일 | 결과·확인 |
+|---|---|---|
+| 13:4x | 운영 시험 네임스페이스에서 표지판 방식 측정(만들고 지움) | ExternalName 반영 EKS 3.2초 · **고객 GKE 30.1초** → 쓰지 않음. ClusterIP 뒤 바꾸기는 두 클러스터 **1초 안**, 옛 쪽 섞임 0 |
+| 16:1x | 1단계 확인 | A·B `app_rw` 검증자 같음, 쓰기 담당 A, `echo_sub` streaming |
+| 16:1x | 2단계 Secret(두 클러스터, `base/secret.example.yaml`) · `base/namespace.yaml` | 값 출력 없음 |
+| 16:1x | 3단계 `apply -k pool/{aws-tokyo,gcp-seoul}` · Job 권한 `deploy/{aws-tokyo,gcp-seoul-customer}{,-pool}` | 적용 전 `diff -k` = 추가만. 두 PgBouncer rollout 완료 |
+| 16:1x | 서울 표지판 `pool-point.sh B "$A_HOST"`(#116 뒤) | EndpointSlice `db-writer-manual` = A NLB IP **1개**(cross-zone 꺼짐 → #118) |
+| 16:1x | 확인 | 두 새 PgBouncer 로 `app_rw` 로그인 → A 파드(`inet_server_addr`), `pg_is_in_recovery=false`, 장부 223. `pool_mode` A·B 모두 아니오(옛 PgBouncer 있음) |
+| 16:2x | 컷오버 이미지 `cutover:864e1e7`(`sha256:51fc6914…`) push · echo-was #119 배포 + `rollout restart` · VAP #117 apply(diff 확인 뒤) | worker env 새 digest. VAP server dry-run: 새 digest 허용 · 옛 digest 거부 |
+| 16:35 | 무동작 Job `KIND=rollback`(새 이미지) | Complete. `B = 다른 GKE 클러스터 echo-dev-customer-gke` → 옛 PgBouncer ini 로 판단 → `ALREADY_WRITER`(바뀐 것 없음) |
+
+남은 것: #118(도쿄 A NLB cross-zone) 적용 뒤 서울 표지판을 두 AZ IP 로 → 4단계(앱을 새 풀로, 이때부터 풀 방식) → 5단계 리허설 → 6단계 NetworkPolicy(도쿄는 EKS 집행 켜기부터) → 7단계 정리 → 관제탑 구독(echo-was).
