@@ -1,0 +1,62 @@
+{
+  "registry_sha256": "23ac1494a2833d00434571ae08708729bba2fa9208fc7f10b69e495434a0868a",
+  "configuration": {
+    "revision": "fixture-1",
+    "max_age_seconds": 300,
+    "databases": [
+      {
+        "id": "aws-a-app",
+        "organization_id": "00000000-0000-0000-0000-000000000001",
+        "service_id": "00000000-0000-0000-0000-000000000002",
+        "environment_id": "00000000-0000-0000-0000-000000000003",
+        "deployment_id": "00000000-0000-0000-0000-00000000000b",
+        "environment_kind": "aws",
+        "adapter_slot": "A",
+        "database_name": "app"
+      },
+      {
+        "id": "gcp-b-app",
+        "organization_id": "00000000-0000-0000-0000-000000000001",
+        "service_id": "00000000-0000-0000-0000-000000000002",
+        "environment_id": "00000000-0000-0000-0000-000000000004",
+        "deployment_id": "00000000-0000-0000-0000-00000000000c",
+        "environment_kind": "gcp",
+        "adapter_slot": "B",
+        "database_name": "app"
+      }
+    ],
+    "pairs": [
+      {
+        "source_db_id": "aws-a-app",
+        "target_db_id": "gcp-b-app",
+        "adapter": "legacy-ab-v1",
+        "route": {
+          "status": "VERIFIED",
+          "observed_at": "2026-11-07T05:00:00Z",
+          "evidence_id": "local-fixture"
+        },
+        "writer_path": {
+          "status": "VERIFIED",
+          "observed_at": "2026-11-07T05:00:00Z",
+          "evidence_id": "local-fixture"
+        },
+        "data_sync": {
+          "status": "VERIFIED",
+          "observed_at": "2026-11-07T05:00:00Z",
+          "evidence_id": "local-fixture"
+        },
+        "job_contract": {
+          "status": "VERIFIED",
+          "observed_at": "2026-11-07T05:00:00Z",
+          "evidence_id": "local-fixture"
+        },
+        "writer_db_id": "aws-a-app",
+        "writer": {
+          "status": "VERIFIED",
+          "observed_at": "2026-11-07T05:00:00Z",
+          "evidence_id": "local-fixture"
+        }
+      }
+    ]
+  }
+}

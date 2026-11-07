@@ -1,0 +1,111 @@
+{
+  "apiVersion": "batch/v1",
+  "kind": "Job",
+  "metadata": {
+    "name": "echo-cutover-00000000-1",
+    "namespace": "echo-ops",
+    "labels": {
+      "app.kubernetes.io/part-of": "echo-cutover"
+    }
+  },
+  "spec": {
+    "backoffLimit": 0,
+    "activeDeadlineSeconds": 120,
+    "ttlSecondsAfterFinished": 86400,
+    "template": {
+      "metadata": {
+        "labels": {
+          "app.kubernetes.io/part-of": "echo-cutover"
+        }
+      },
+      "spec": {
+        "serviceAccountName": "echo-cutover",
+        "restartPolicy": "Never",
+        "terminationGracePeriodSeconds": 30,
+        "containers": [
+          {
+            "name": "cutover",
+            "image": "fixture@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "env": [
+              {
+                "name": "KIND",
+                "value": "cutover"
+              },
+              {
+                "name": "PLAN_ID",
+                "value": "00000000-0000-0000-0000-000000000065"
+              },
+              {
+                "name": "ALLOW_PROMOTE",
+                "value": "false"
+              },
+              {
+                "name": "SOURCE_DB",
+                "value": "aws-a-app"
+              },
+              {
+                "name": "TARGET_DB",
+                "value": "gcp-b-app"
+              },
+              {
+                "name": "EXPECTED_WRITER_DB",
+                "value": "aws-a-app"
+              },
+              {
+                "name": "DB_PAIR_CONTRACT_VERSION",
+                "value": "db-pair/v1"
+              },
+              {
+                "name": "DB_PAIR_REGISTRY_SHA256",
+                "value": "23ac1494a2833d00434571ae08708729bba2fa9208fc7f10b69e495434a0868a"
+              },
+              {
+                "name": "ORGANIZATION_ID",
+                "value": "00000000-0000-0000-0000-000000000001"
+              },
+              {
+                "name": "SERVICE_ID",
+                "value": "00000000-0000-0000-0000-000000000002"
+              },
+              {
+                "name": "SOURCE_ENVIRONMENT_ID",
+                "value": "00000000-0000-0000-0000-000000000003"
+              },
+              {
+                "name": "TARGET_ENVIRONMENT_ID",
+                "value": "00000000-0000-0000-0000-000000000004"
+              },
+              {
+                "name": "SOURCE_DEPLOYMENT_ID",
+                "value": "00000000-0000-0000-0000-00000000000b"
+              },
+              {
+                "name": "TARGET_DEPLOYMENT_ID",
+                "value": "00000000-0000-0000-0000-00000000000c"
+              }
+            ],
+            "resources": {
+              "requests": {
+                "cpu": "50m",
+                "memory": "64Mi"
+              },
+              "limits": {
+                "memory": "256Mi"
+              }
+            },
+            "securityContext": {
+              "runAsNonRoot": true,
+              "allowPrivilegeEscalation": false,
+              "readOnlyRootFilesystem": false,
+              "capabilities": {
+                "drop": [
+                  "ALL"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

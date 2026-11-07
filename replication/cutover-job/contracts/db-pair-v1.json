@@ -1,0 +1,115 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "organization_id": {
+      "format": "uuid",
+      "title": "Organization Id",
+      "type": "string"
+    },
+    "service_id": {
+      "format": "uuid",
+      "title": "Service Id",
+      "type": "string"
+    },
+    "source_environment_id": {
+      "format": "uuid",
+      "title": "Source Environment Id",
+      "type": "string"
+    },
+    "target_environment_id": {
+      "format": "uuid",
+      "title": "Target Environment Id",
+      "type": "string"
+    },
+    "source_deployment_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Deployment Id"
+    },
+    "target_deployment_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Target Deployment Id"
+    },
+    "contract_version": {
+      "const": "db-pair/v1",
+      "default": "db-pair/v1",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "registry_revision": {
+      "title": "Registry Revision",
+      "type": "string"
+    },
+    "registry_sha256": {
+      "title": "Registry Sha256",
+      "type": "string"
+    },
+    "source_db_id": {
+      "pattern": "^[a-z][a-z0-9-]{0,62}$",
+      "title": "Source Db Id",
+      "type": "string"
+    },
+    "target_db_id": {
+      "pattern": "^[a-z][a-z0-9-]{0,62}$",
+      "title": "Target Db Id",
+      "type": "string"
+    },
+    "operation": {
+      "enum": [
+        "appTraffic",
+        "dbCutover",
+        "disasterPromote",
+        "failback"
+      ],
+      "title": "Operation",
+      "type": "string"
+    },
+    "job_kind": {
+      "anyOf": [
+        {
+          "enum": [
+            "cutover",
+            "rollback",
+            "promote"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Job Kind"
+    }
+  },
+  "required": [
+    "organization_id",
+    "service_id",
+    "source_environment_id",
+    "target_environment_id",
+    "source_deployment_id",
+    "target_deployment_id",
+    "registry_revision",
+    "registry_sha256",
+    "source_db_id",
+    "target_db_id",
+    "operation",
+    "job_kind"
+  ],
+  "title": "MigrationPairSnapshot",
+  "type": "object"
+}
