@@ -147,6 +147,8 @@ kc -n echo-demo rollout status deploy/demo-app --timeout=300s
 # 정책(ValidatingAdmissionPolicy)을 먼저 받아들이게 한 뒤 토큰이 채워질 때까지 기다린다. 토큰은 화면에 찍지 않는다.
 log "echo-was 실행기 신원·권한 적용 (echo-system/echo-executor, 네임스페이스 라벨 정책)"
 kc apply -f "$HERE/manifests/echo-executor.yaml" >/dev/null
+# 앱 네임스페이스 파드가 노드 권한(privileged·host 네임스페이스·hostPath)을 얻지 못하게 막는다 (manifests/app-pod-guard.yaml)
+kc apply -f "$HERE/manifests/app-pod-guard.yaml" >/dev/null
 # shellcheck disable=SC2016 # 안쪽 셸에서 펼친다
 wait_for "실행기 토큰 채움" 60 sh -c '[ -n "$(k3s kubectl -n echo-system get secret echo-executor-token -o jsonpath="{.data.token}")" ]'
 
