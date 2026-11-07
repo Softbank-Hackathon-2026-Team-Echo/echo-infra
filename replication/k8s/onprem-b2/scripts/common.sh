@@ -1,5 +1,7 @@
 # 온프레 → B2 장애 전환 스크립트 공통 (인프라 18). source 해서 쓴다.
 set -euo pipefail
+# GKE 인증 도구(gke-gcloud-auth-plugin). replication/k8s/scripts/common.sh 와 같이 뒤에 붙인다.
+export PATH="$PATH:/opt/homebrew/share/google-cloud-sdk/bin"
 
 GCP_CTX="${GCP_CTX:-gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke}"
 AWS_CTX="${AWS_CTX:-echo-dev-eks}"
