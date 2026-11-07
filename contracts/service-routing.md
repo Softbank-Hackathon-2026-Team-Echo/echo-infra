@@ -14,7 +14,7 @@ SERVICE_ROUTES_FILE은 운영자가 WAS의 조직별 services.public_host, servi
 {"services":[{"serviceId":"서비스 UUID","publicHost":"shop-12345678.echoport.uk","environments":{"환경 UUID":{"host":"검증된 ingress DNS 또는 IP","port":80}},"initialWeights":{"환경 UUID":100}}]}
 
 서비스·환경은 canonical UUID, publicHost는 소문자 ASCII DNS 이름(스킴·경로·포트·와일드카드 없음). 서비스 UUID/publicHost 중복 거절. 한 서비스 안에서 같은 host:port를 두 환경 UUID에 중복 등록하면 거절. 서로 다른 서비스가 같은 shared ingress origin을 쓰는 것은 허용: 별도 클러스터 + 정확한 publicHost로 격리한다. 서비스 환경 UUID는 종류(aws/gcp/onprem)로 대체하지 않는다. 등록 시 빠진 initialWeights 키/합계 오류 거절. 등록 변경은 재시작·별도 검증이 필요하며 자동으로 route를 삭제하지 않는다.
-HTTP origin만 지원한다. TLS 터널/SNI가 필요한 onprem 경로는 이 계약만으로 지원 완료가 아니다. 검증된 HTTP 내부 ingress를 등록하는 확장 지점은 열려 있다. 운영에 없는 onprem route를 자동 생성하거나 supported:true로 노출하지 않는다. DB writer/복제·Cloudflare 입구 우선과 독립이다.
+기본은 HTTP origin이다. 11/8 추가: origin에 `"tls": true`(정확히 true, host는 점 있는 DNS 이름)를 주면 TLS origin(예: Cloudflare 터널 공개 주소 :443)으로 본다 — Envoy cluster에 UpstreamTlsContext(SNI=origin host, 시스템 CA로 인증서·SAN 검증), 그 환경으로 가는 요청과 헬스체크의 Host를 origin host로 바꾼다(터널은 Host로 길을 고른다). 그 밖의 키는 거절. 서비스 route에도 legacy와 같은 retry_policy(connect-failure·refused-stream·reset, 2회)와 헬스체크 no_traffic_interval 2s를 둔다. TLS 터널 경로가 이걸로 서비스별 비율에 들어가지만 온프레 DB·이전 지원 완료를 뜻하지 않는다. 검증된 HTTP 내부 ingress를 등록하는 확장 지점은 열려 있다. 운영에 없는 onprem route를 자동 생성하거나 supported:true로 노출하지 않는다. DB writer/복제·Cloudflare 입구 우선과 독립이다.
 
 ## 내부 API (FE 직접 호출 금지)
 

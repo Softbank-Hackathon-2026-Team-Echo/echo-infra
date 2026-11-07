@@ -365,6 +365,36 @@ class ServiceRoutingTest(unittest.TestCase):
         self.app.seed()
         self.assertEqual(self.app.SCOPED_STORE.get(B, "b.echo.test"), before_b)
 
+    def test_tls_origin_sets_sni_host_rewrite_and_health_host(self):
+        data = registration()
+        data["services"][0]["environments"][GCP] = {"host": "tunnel-x.echo.test", "port": 443, "tls": True}
+        path = self.root / "tls-registry.json"
+        path.write_text(json.dumps(data))
+        store = self.app.ServiceRouteStore(str(self.root / "tls"), str(path))
+        store.seed()
+        clusters = {c["name"]: c for c in json.loads((self.root / "tls/clusters.yaml").read_text())["resources"]}
+        tls = clusters[self.app.cluster_id(A, GCP)]
+        ctx = tls["transport_socket"]["typed_config"]
+        self.assertEqual(ctx["sni"], "tunnel-x.echo.test")
+        self.assertEqual(tls["health_checks"][0]["http_health_check"]["host"], "tunnel-x.echo.test")
+        plain = clusters[self.app.cluster_id(A, AWS)]
+        self.assertNotIn("transport_socket", plain)
+        self.assertEqual(plain["health_checks"][0]["http_health_check"]["host"], "a.echo.test")
+        self.assertEqual(plain["health_checks"][0]["no_traffic_interval"], "2s")
+        routes = json.loads((self.root / "tls/routes.yaml").read_text())["resources"][0]["virtual_hosts"]
+        weighted = {c["name"]: c for c in routes[0]["routes"][-1]["route"]["weighted_clusters"]["clusters"]}
+        self.assertEqual(weighted[self.app.cluster_id(A, GCP)]["host_rewrite_literal"], "tunnel-x.echo.test")
+        self.assertNotIn("host_rewrite_literal", weighted[self.app.cluster_id(A, AWS)])
+        self.assertIn("retry_policy", routes[0]["routes"][-1]["route"])
+        for bad in ({"host": "tunnel-x.echo.test", "port": 443, "tls": "yes"},
+                    {"host": "tunnel-x.echo.test", "port": 443, "tls": False},
+                    {"host": "localhost", "port": 443, "tls": True},
+                    {"host": "tunnel-x.echo.test", "port": 443, "sni": "x"}):
+            data["services"][0]["environments"][GCP] = bad
+            path.write_text(json.dumps(data))
+            with self.assertRaises(ValueError):
+                self.app.ServiceRouteStore(str(self.root / "tls-bad"), str(path))
+
 
 if __name__ == "__main__":
     unittest.main()

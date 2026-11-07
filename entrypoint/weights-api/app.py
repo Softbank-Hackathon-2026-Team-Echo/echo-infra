@@ -57,6 +57,8 @@ PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090").rstr
 _PROM_AUTH = os.environ.get("PROMETHEUS_BASIC_AUTH", "")
 PROM_HEADERS = {"Authorization": "Basic " + base64.b64encode(_PROM_AUTH.encode()).decode()} if _PROM_AUTH else {}
 HC_PATH = os.environ.get("HC_PATH", "/healthz")
+# TLS origin 인증서 검증용 CA 묶음. Envoy 컨테이너 안 경로(envoyproxy/envoy 이미지에 있음).
+TLS_CA_FILE = os.environ.get("TLS_CA_FILE", "/etc/ssl/certs/ca-certificates.crt")
 SYNC_FROM = os.environ.get("SYNC_FROM", "").rstrip("/")
 SYNC_INTERVAL = float(os.environ.get("SYNC_INTERVAL", "2"))
 LISTEN_PORT = int(os.environ.get("PORT", "8080"))
@@ -662,13 +664,16 @@ class ServiceRouteStore:
             origins = set()
             for eid, origin in environments.items():
                 canonical_uuid(eid)
-                if not isinstance(origin, dict) or set(origin) != {"host", "port"}:
-                    raise ValueError("HTTP origin host/port required")
+                # 기본은 HTTP origin {host, port}. {host, port, tls: true} 는 TLS origin(예: Cloudflare 터널
+                # 공개 주소 :443) — SNI·인증서 검증·Host 를 origin host 로 바꿔 보낸다(터널은 Host 로 길을 고른다).
+                if not isinstance(origin, dict) or set(origin) not in ({"host", "port"}, {"host", "port", "tls"}):
+                    raise ValueError("origin host/port(/tls) required")
                 if (
                     not valid_dns(origin["host"])
                     or origin["host"] == host
                     or type(origin["port"]) is not int
                     or not 1 <= origin["port"] <= 65535
+                    or ("tls" in origin and (origin["tls"] is not True or "." not in origin["host"]))
                 ):
                     raise ValueError("invalid origin")
                 key = (origin["host"], origin["port"])
@@ -782,6 +787,14 @@ class ServiceRouteStore:
             "direct_response": {"status": 200, "body": {"inline_string": "ok\n"}},
         }
         for sid, state in snapshot["services"].items():
+            environments = self.registry[sid]["environments"]
+            weighted = []
+            for eid, weight in state["weights"].items():
+                item = {"name": cluster_id(sid, eid), "weight": weight}
+                if environments[eid].get("tls"):
+                    # TLS origin(Cloudflare 터널 등)은 Host 로 길을 고른다 → 대표 주소 대신 origin host 로 보낸다.
+                    item["host_rewrite_literal"] = environments[eid]["host"]
+                weighted.append(item)
             hosts.append(
                 {
                     "name": "service_" + uuid.UUID(sid).hex,
@@ -792,12 +805,22 @@ class ServiceRouteStore:
                             "match": {"prefix": "/"},
                             "route": {
                                 "timeout": "30s",
-                                "weighted_clusters": {
-                                    "clusters": [
-                                        {"name": cluster_id(sid, eid), "weight": weight}
-                                        for eid, weight in state["weights"].items()
-                                    ]
+                                # legacy 경로와 같은 재시도(연결 실패·reset 만, 다른 호스트로).
+                                "retry_policy": {
+                                    "retry_on": "connect-failure,refused-stream,reset",
+                                    "num_retries": 2,
+                                    "per_try_timeout": "5s",
+                                    "retry_host_predicate": [
+                                        {
+                                            "name": "envoy.retry_host_predicates.previous_hosts",
+                                            "typed_config": {
+                                                "@type": "type.googleapis.com/envoy.extensions.retry.host.previous_hosts.v3.PreviousHostsPredicate"
+                                            },
+                                        }
+                                    ],
+                                    "host_selection_retry_max_attempts": 3,
                                 },
+                                "weighted_clusters": {"clusters": weighted},
                             },
                         },
                     ],
@@ -826,8 +849,8 @@ class ServiceRouteStore:
         for sid, entry in self.registry.items():
             for eid, origin in entry["environments"].items():
                 name = cluster_id(sid, eid)
-                clusters.append(
-                    {
+                tls = bool(origin.get("tls"))
+                cluster = {
                         "@type": "type.googleapis.com/envoy.config.cluster.v3.Cluster",
                         "name": name,
                         "type": "STRICT_DNS",
@@ -858,19 +881,45 @@ class ServiceRouteStore:
                             {
                                 "timeout": "1s",
                                 "interval": "2s",
+                                # 비율 0(트래픽 없음)인 환경도 2초마다 본다(기본 60초면 이전 직후 도착이 늦게 살아난다).
+                                "no_traffic_interval": "2s",
                                 "unhealthy_threshold": 2,
                                 "healthy_threshold": 1,
-                                "http_health_check": {"path": HC_PATH, "host": entry["publicHost"]},
+                                "http_health_check": {
+                                    "path": HC_PATH,
+                                    "host": origin["host"] if tls else entry["publicHost"],
+                                },
                             }
                         ],
                         "outlier_detection": {
                             "consecutive_5xx": 3,
+                            "consecutive_gateway_failure": 3,
                             "interval": "2s",
                             "base_ejection_time": "10s",
                             "max_ejection_percent": 100,
                         },
+                }
+                if tls:
+                    cluster["transport_socket"] = {
+                        "name": "envoy.transport_sockets.tls",
+                        "typed_config": {
+                            "@type": "type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext",
+                            "sni": origin["host"],
+                            "common_tls_context": {
+                                "validation_context": {
+                                    "trusted_ca": {"filename": TLS_CA_FILE},
+                                    "match_typed_subject_alt_names": [
+                                        {"san_type": "DNS", "matcher": {"exact": origin["host"]}},
+                                        {
+                                            "san_type": "DNS",
+                                            "matcher": {"exact": "*." + origin["host"].split(".", 1)[1]},
+                                        },
+                                    ],
+                                }
+                            },
+                        },
                     }
-                )
+                clusters.append(cluster)
         return {"version_info": self.registry_hash, "resources": clusters}
 
     def _save(self, data):
