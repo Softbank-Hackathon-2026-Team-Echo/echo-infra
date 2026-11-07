@@ -1,0 +1,22 @@
+# infra#95 2단계 B-3: 새 B Postgres 를 관제탑(echo-was 데이터 확인 DATA_SYNC_CHECK)에서 VPC 안으로만 읽게 하는 내부 L4 LB.
+# 출발지 = 관제탑 클러스터 파드 10.61.0.0/16 · 노드 10.60.0.0/20. GKE 가 같은 출발지로 방화벽을 자동 생성한다.
+# 되돌리기: kubectl -n echo-data delete svc echo-pg-internal
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-pg-internal
+  namespace: echo-data
+  labels: { app: echo-pg, purpose: infra-16-customer-cluster }
+  annotations:
+    networking.gke.io/load-balancer-type: "Internal"
+spec:
+  type: LoadBalancer
+  selector: { app: echo-pg }
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP
+  loadBalancerSourceRanges:
+    - 10.61.0.0/16 # 관제탑 클러스터 파드
+    - 10.60.0.0/20 # 관제탑 노드 서브넷

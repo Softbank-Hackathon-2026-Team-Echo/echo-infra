@@ -1,0 +1,7 @@
+# B(서울 DB)가 있는 고객 클러스터 echo-dev-customer-gke: kubectl --context <고객 GKE> apply -k replication/cutover-job/deploy/gcp-seoul-customer
+# Job·VAP·echo-ops 는 관제탑 클러스터(deploy/gcp-seoul) 그대로. 여기는 echo-data Role + GSA RoleBinding 만.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - echo-data-rbac.yaml
+  - gke-customer-binding.yaml

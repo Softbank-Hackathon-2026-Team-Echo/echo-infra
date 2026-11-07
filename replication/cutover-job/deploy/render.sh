@@ -10,19 +10,24 @@ source values.env
 [[ $CUTOVER_IMAGE == *@sha256:* ]] || { echo "CUTOVER_IMAGE 는 @sha256 digest 여야 한다(VAP 가 태그 이미지를 막음)" >&2; exit 1; }
 
 out=$(mktemp -d); trap 'rm -rf "$out"' EXIT
-mkdir -p "$out/gcp-seoul" "$out/aws-tokyo"
+mkdir -p "$out/gcp-seoul" "$out/aws-tokyo" "$out/gcp-seoul-customer"
 head="# 생성 파일 — 고치지 말고 manifests/ 나 values.env 를 고친 뒤 render.sh 를 돌린다."
 for f in echo-data-rbac.yaml gke-binding.yaml; do { echo "$head"; cat "../manifests/$f"; } > "$out/gcp-seoul/$f"; done
 { echo "$head"; sed -e "s|__CUTOVER_GSA__|$CUTOVER_GSA|g" -e "s|__CUTOVER_IMAGE__|$CUTOVER_IMAGE|g" ../manifests/echo-ops.yaml; } > "$out/gcp-seoul/echo-ops.yaml"
 for f in echo-data-rbac.yaml eks-binding.yaml; do { echo "$head"; cat "../manifests/$f"; } > "$out/aws-tokyo/$f"; done
+# 고객 클러스터(인프라 16 2단계): B DB 가 여기 있고, Job 은 관제탑에서 GSA 로 붙는다.
+{ echo "$head"; cat ../manifests/echo-data-rbac.yaml; } > "$out/gcp-seoul-customer/echo-data-rbac.yaml"
+{ echo "$head"; sed -e "s|__CUTOVER_GSA__|$CUTOVER_GSA|g" ../manifests/gke-customer-binding.yaml; } > "$out/gcp-seoul-customer/gke-customer-binding.yaml"
 cp gcp-seoul/kustomization.yaml "$out/gcp-seoul/" 2>/dev/null || true
 cp aws-tokyo/kustomization.yaml "$out/aws-tokyo/" 2>/dev/null || true
+cp gcp-seoul-customer/kustomization.yaml "$out/gcp-seoul-customer/" 2>/dev/null || true
 
 if grep -rq "__CUTOVER_" "$out"; then echo "채워지지 않은 자리 표시가 남았다" >&2; exit 1; fi
 
 if [[ ${1:-} == --check ]]; then
-  diff -r "$out/gcp-seoul" gcp-seoul && diff -r "$out/aws-tokyo" aws-tokyo && echo "deploy/ = manifests/ + values.env" && exit 0
+  diff -r "$out/gcp-seoul" gcp-seoul && diff -r "$out/aws-tokyo" aws-tokyo && diff -r "$out/gcp-seoul-customer" gcp-seoul-customer \
+    && echo "deploy/ = manifests/ + values.env" && exit 0
   echo "deploy/ 가 템플릿·값과 다르다 → render.sh 를 다시 돌려 커밋" >&2; exit 1
 fi
-for c in gcp-seoul aws-tokyo; do mkdir -p "$c"; cp "$out/$c"/*.yaml "$c/"; done
-echo "만듦: deploy/gcp-seoul (echo-data-rbac · echo-ops · gke-binding), deploy/aws-tokyo (echo-data-rbac · eks-binding)"
+for c in gcp-seoul aws-tokyo gcp-seoul-customer; do mkdir -p "$c"; cp "$out/$c"/*.yaml "$c/"; done
+echo "만듦: deploy/gcp-seoul (echo-data-rbac · echo-ops · gke-binding), deploy/aws-tokyo (echo-data-rbac · eks-binding), deploy/gcp-seoul-customer (echo-data-rbac · gke-customer-binding)"
