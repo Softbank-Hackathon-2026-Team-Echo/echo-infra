@@ -39,7 +39,11 @@ pool_mode() { local ctx; ctx=$(ctx_of "$1")
 resolve_ipv4() { local h=$1 ips
   if [[ $h =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "$h"; return 0; fi
   ips=$(getent ahostsv4 "$h" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' || true)
-  [[ -n ${ips// /} ]] || ips=$(python3 -c 'import socket,sys; print(" ".join(sorted({a[4][0] for a in socket.getaddrinfo(sys.argv[1], None, socket.AF_INET)})))' "$h" 2>/dev/null || true)
+  # getent 가 없으면 python3, 그것도 없으면 python(Windows 데스크톱은 python 만 있다, 11/7)
+  local py; for py in python3 python; do
+    [[ -n ${ips// /} ]] && break
+    ips=$("$py" -c 'import socket,sys; print(" ".join(sorted({a[4][0] for a in socket.getaddrinfo(sys.argv[1], None, socket.AF_INET)})))' "$h" 2>/dev/null || true)
+  done
   [[ -n ${ips// /} ]] || { echo "[중단] $h 를 IPv4 로 풀지 못했다" >&2; return 1; }
   echo "${ips% }"; }
 
