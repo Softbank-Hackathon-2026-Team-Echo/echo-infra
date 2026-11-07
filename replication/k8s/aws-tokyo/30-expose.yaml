@@ -12,6 +12,9 @@ metadata:
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
     service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
     service.beta.kubernetes.io/aws-load-balancer-name: echo-dev-pg-a
+    # 두 AZ 의 NLB 주소 어느 쪽으로 와도 A 파드에 닿게(11/7). 꺼져 있으면 DNS 가 A 파드가 있는 AZ 주소만 주고, 서울 풀 계층 표지판
+    # (replication/k8s/pool, IP 로 적어 둠)이 A 파드가 다른 AZ 로 옮겨 가면 닿지 않는 주소를 가리킨다.
+    service.beta.kubernetes.io/aws-load-balancer-attributes: load_balancing.cross_zone.enabled=true
 spec:
   type: LoadBalancer
   selector: { app: echo-pg }
