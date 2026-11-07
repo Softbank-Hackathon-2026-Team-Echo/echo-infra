@@ -2,7 +2,7 @@
 # B(서울 GKE)에만: 컷오버 Job 이 도는 네임스페이스, Job 신원(KSA), echo-was 가 Job 을 만들고 읽는 권한, Job 모양을 고정하는 VAP.
 # 자리 표시 두 개는 deploy/render.sh 가 deploy/values.env 로 채운다(운영 적용 파일 = deploy/gcp-seoul/echo-ops.yaml):
 #   echo-dev-cutover@team-echo-final.iam.gserviceaccount.com   = terraform gcp/dev output cutover_service_account_email (Workload Identity 로 Google ID 토큰을 받는다)
-#   asia-northeast3-docker.pkg.dev/team-echo-final/echo/cutover@sha256:51fc69142586a62b4524c182973b454188eb7fa7592ac0f354963f1cca7b1be6 = Artifact Registry 의 컷오버 이미지, 반드시 @sha256 digest
+#   asia-northeast3-docker.pkg.dev/team-echo-final/echo/cutover@sha256:445e86f18206448ff8f9b6d9660fa621b4037bec8e956fe93d4f37ab2d1d850c = Artifact Registry 의 컷오버 이미지, 반드시 @sha256 digest
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -84,7 +84,7 @@ spec:
       message: "serviceAccountName 은 echo-cutover 여야 한다"
     - expression: "size(variables.pod.containers) == 1 && (!has(variables.pod.initContainers) || size(variables.pod.initContainers) == 0) && (!has(variables.pod.ephemeralContainers) || size(variables.pod.ephemeralContainers) == 0)"
       message: "컨테이너는 하나만(init·ephemeral 없음)"
-    - expression: "variables.c.image == 'asia-northeast3-docker.pkg.dev/team-echo-final/echo/cutover@sha256:51fc69142586a62b4524c182973b454188eb7fa7592ac0f354963f1cca7b1be6'"
+    - expression: "variables.c.image == 'asia-northeast3-docker.pkg.dev/team-echo-final/echo/cutover@sha256:445e86f18206448ff8f9b6d9660fa621b4037bec8e956fe93d4f37ab2d1d850c'"
       message: "이미지는 고정된 컷오버 이미지 digest 여야 한다"
     - expression: "!has(variables.c.command) && !has(variables.c.args)"
       message: "command·args 를 덮어쓸 수 없다(이미지 ENTRYPOINT 만)"

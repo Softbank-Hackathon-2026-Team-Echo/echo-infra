@@ -81,6 +81,7 @@ kubectl --context <GKE> auth can-i get secrets -n echo-data --as=system:servicea
 | 11/6 | 이미지 `cutover:c3b4747` push (`sha256:cb668942…`, #79 사전 확인 포함) · `deploy/gcp-seoul` 다시 apply(VAP digest) | 이도현 | (apply 뒤 채움) |
 | 11/7 | 인프라 16 2단계: B 를 고객 클러스터 `echo-dev-customer-gke` 로. 이미지 `cutover:b13142d` push(`sha256:b4729702…`, `--build-arg B_GKE_CLUSTER=projects/team-echo-final/locations/asia-northeast3-a/clusters/echo-dev-customer-gke`) · `deploy/gcp-seoul` apply(VAP digest 만 바뀜) · `deploy/gcp-seoul-customer` apply(고객 클러스터 Role + GSA RoleBinding) · GSA `container.clusterViewer`(손으로, `docs/manual-resources.md`) | 김지민(인프라 16) | can-i(GSA: exec·svc·ini patch yes / secrets·kube-system no), 옛 digest Job 서버 dry-run 거부·새 digest 허용, Job `KIND=rollback`(무동작 확인) Complete 27초 — `B = 다른 GKE 클러스터 echo-dev-customer-gke` · `ALREADY_WRITER` |
 | 11/7 | 풀 계층(#114): 이미지 `cutover:864e1e7` push(`sha256:51fc6914…`, 빌드 인자는 b13142d 와 같음) · `deploy/gcp-seoul` apply(VAP digest 만 바뀜, echo-was `DB_CUTOVER_JOB_IMAGE` 와 같이) · `deploy/{aws-tokyo,gcp-seoul-customer}` + `*-pool` apply(표지판·EndpointSlice·echo-pool 관리 콘솔 권한) | 이도현 | 표지판이 없거나 옛 PgBouncer 가 있으면 스크립트는 옛 방식 그대로(이미지 안 `pool_mode`) |
+| 11/8 | 쓰기 정지 창 단축(#133, PR #136): 이미지 `cutover:fe9f025` push(`sha256:445e86f1…`, linux/amd64, 빌드 인자는 864e1e7 과 같음) · `deploy/gcp-seoul` apply(VAP digest 만 바뀜, echo-was `DB_CUTOVER_JOB_IMAGE` 와 같이) | 서동옥 | `diff -k` = VAP digest 한 줄. 리허설 결과는 #133 |
 
 ## 시험
 
