@@ -1,0 +1,50 @@
+# 온프레(onprem/manifests/demo-app.yaml)와 같은 PgBouncer. 대상만 B2(onprem-pg)로 바꾼다.
+# 평소에도 떠 있어도 된다. 앱이 0 이라 B2 에 쓰는 쪽이 없다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-pgbouncer
+  labels: { app: demo-pgbouncer, part-of: onprem-failover }
+spec:
+  selector:
+    app: demo-pgbouncer
+  ports:
+    - name: pgbouncer
+      port: 6432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-pgbouncer
+  labels: { app: demo-pgbouncer, part-of: onprem-failover }
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-pgbouncer
+  template:
+    metadata:
+      labels:
+        app: demo-pgbouncer
+    spec:
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:v1.26.1-p0
+          env:
+            - { name: DB_HOST, value: onprem-pg }
+            - { name: DB_PORT, value: "5432" }
+            - { name: DB_USER, value: demo }
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: onprem-b2-db, key: password } }
+            - { name: AUTH_TYPE, value: scram-sha-256 }
+            - { name: POOL_MODE, value: transaction }
+            - { name: LISTEN_PORT, value: "6432" }
+            - { name: MAX_PREPARED_STATEMENTS, value: "0" }
+          ports:
+            - containerPort: 6432
+          readinessProbe:
+            tcpSocket: { port: 6432 }
+            periodSeconds: 3
+          resources:
+            requests: { cpu: 20m, memory: 16Mi }
+            limits: { memory: 64Mi }
