@@ -1,0 +1,19 @@
+# 옮기기 4단계(../README.md): 앱 주소를 바꾸지 않고 새 풀 계층으로 넘긴다.
+# 앱의 DATABASE_URL 은 echo-pgbouncer.echo-data.svc.cluster.local:6432 그대로 — 이 이름을 echo-pool 의 PgBouncer 로 가리키는 별칭으로 바꾼다.
+# 적용 전 echo-data 의 옛 Service·Deployment echo-pgbouncer 를 지워야 한다(같은 이름의 ClusterIP Service 가 있으면 타입을 바꿀 수 없다).
+#   kubectl -n echo-data delete deploy/echo-pgbouncer svc/echo-pgbouncer && kubectl apply -f echo-data-pgbouncer-alias.yaml
+# 기존 연결은 옛 PgBouncer 와 함께 끊기고, 앱 풀이 다시 붙을 때 새 PgBouncer 로 간다(쓰기 몇 초 실패 가능 — 시연 밖 시간에).
+# 되돌리기: 이 Service 를 지우고 echo-data 의 20-pgbouncer.yaml 을 다시 apply.
+# 나중에(앱을 다시 배포할 때) DATABASE_URL 을 echo-pgbouncer.echo-pool 로 바꾸면 이 별칭은 지운다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-pgbouncer
+  namespace: echo-data
+  labels: { app.kubernetes.io/part-of: echo-pool, purpose: alias-to-echo-pool }
+spec:
+  type: ExternalName
+  externalName: echo-pgbouncer.echo-pool.svc.cluster.local
+  ports:
+    - name: pgbouncer
+      port: 6432
