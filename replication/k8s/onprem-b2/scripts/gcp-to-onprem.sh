@@ -44,7 +44,7 @@ echo "온프레 앱이 gcpcopy 로 전환됨"
 EOF
     t1=$(date +%s.%N)
     echo "전환 걸린 시간: $(printf '%.1f' "$(echo "$t1-$t0" | bc -l)")s"
-    curl -s -m 8 "https://$APP_HOST/api/writes/summary" | head -c 200; echo
+    { curl -s -m 8 "https://$APP_HOST/api/writes/summary" || true; } | head -c 200 || true; echo
     curl -s -m 8 -o /dev/null -w "쓰기 1건 %{http_code}\n" -X POST -H 'Content-Type: application/json' "https://$APP_HOST/api/writes" -d '{}'
     ;;
   back)
@@ -56,7 +56,7 @@ k3s kubectl -n $APP_NS rollout status deploy/app --timeout=180s >/dev/null
 k3s kubectl -n echo-demo exec demo-db-0 -- psql -XAt -U demo -d gcpcopy -c "ALTER SUBSCRIPTION $GSUB ENABLE" >/dev/null
 echo "온프레 앱 원래 DB(demo)로, 구독 다시 켬"
 EOF
-    curl -s -m 8 "https://$APP_HOST/api/info"; echo
+    curl -s -m 8 "https://$APP_HOST/api/info" || true; echo
     ;;
   resync)
     # back 뒤 사본을 서울 B 와 똑같이 맞춘다: 승격 중 온프레에서 쓴 행을 버리고 구독을 다시 만든다(초기 복사, 수 초).

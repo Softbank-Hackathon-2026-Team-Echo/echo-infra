@@ -129,6 +129,32 @@ CONFIRM=yes scripts/gcp-to-onprem.sh resync          # 시험 중 쓴 행 버리
 - 비동기라 GCP 가 갑자기 죽으면 지연만큼 마지막 쓰기를 잃을 수 있다.
 - 온프레 → 서울 B 로 데이터를 되돌리는 복귀는 범위 밖이다(시험은 resync 로 버린다).
 
+## 요청 재생: 클라우드 → 온프레 (인프라 12.4 × 18)
+
+GCP 장애로 온프레에 이전했을 때, 온프레 사본(`gcpcopy`)에 복제되지 못한 쓰기를 진입점 a 요청 기록(15분 보관)으로 온프레 앱에 다시 보내 메운다.
+`replay.sh` 는 보낼 곳을 `REPLAY_BASE` 로 받으므로 온프레 주소(`https://demo-onprem-y6cz3jrc.echoport.uk`)를 그대로 쓴다. 재생은 진입점 a 안에서 돌려 기록 토큰이 VM 밖으로 나오지 않는다.
+
+```bash
+CONFIRM=yes scripts/replay-to-onprem-test.sh     # 기록 켜기 → 사본 구독 끄기 → 메인 주소 쓰기 N건 → 온프레 이전 → 재생 2회 → 확인 → 정리
+# 6단계 전에 멈췄으면 이어서: RESUME_T0=<UNIX 초> RESUME_KEYS=k1,k2,… CONFIRM=yes scripts/replay-to-onprem-test.sh
+```
+
+시험 (11/7 18:48~18:50 KST):
+
+| 단계 | 결과 |
+|---|---|
+| 메인 주소(`demo-y6cz3jrc.echoport.uk`)로 멱등 키 쓰기 5건 | 5건 201, 서울 B 223 → 228행(시험 키 5/5) |
+| 온프레 이전 (`gcp-to-onprem.sh failover`) | 10.8초, 온프레 사본 223행(시험 키 0/5 = 빠진 쓰기 5건) |
+| 재생 1회차 | 보냄 5 · 새로 들어감 5 · 실패 0 |
+| 재생 2회차 | 보냄 5 · 이미 있음 5 (중복 0) |
+| 확인 | 온프레 사본 시험 키 5/5, 228행 = 서울 B, `request_id` 중복 0 |
+| 정리 | 기록 끔(`journal.enabled=0`), back·resync 뒤 서울 B 와 온프레 사본 228행·md5 일치, preflight 20/20 |
+
+- 진입점 a 요청 기록은 평소 꺼져 있다(`journal.enabled=0`). 재생으로 메우려면 장애 전에 켜져 있어야 한다.
+- 기록은 진입점 a 를 거친 쓰기만, 15분만 남는다. 멱등 키가 없는 쓰기는 재생하지 않는다.
+- 진입점 VM 에 `bc` 가 없어 `replay.sh` 의 걸린 시간 표시만 빠진다(결과에는 영향 없음).
+- 시험 중 고친 것: 기록 끄기 trap 을 켜기 전에 걸기, `failover` 요약 curl 이 `pipefail` 로 스크립트를 멈추던 문제.
+
 ## 주의
 
 - 스키마(DDL)는 복제되지 않는다. 온프레에 칸·표를 더하면 B2 에 먼저 더한다(예: 멱등 쓰기 `request_id`).
