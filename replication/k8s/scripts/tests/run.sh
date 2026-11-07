@@ -1,22 +1,29 @@
 #!/usr/bin/env bash
 # 컷오버·롤백 스크립트의 멱등·쓰기 담당 확인·실패 처리를 로컬 Postgres 두 대로 시험한다(인프라 12.1, echo-infra#66).
 # 사용: replication/k8s/scripts/tests/run.sh   (Docker 필요. 끝나면 컨테이너를 지운다. KEEP=1 이면 남긴다)
+#       POOL_SIDES="A B" run.sh → 같은 시나리오를 풀 방식(PgBouncer-DB 분리, 표지판 db-writer)으로. "A" 만 주면 두 방식이 섞인 상태
 set -uo pipefail
 cd "$(dirname "$0")"
 T=$PWD; S=$T/..
-export STATE=$T/.state PATH="$T/bin:$PATH"
-export A_CTX=test-a B_CTX=test-b A_HOST=echo-t-pg-a B_HOST=echo-t-pg-b
+export STATE=$T/.state-${T_PREFIX:-echo-t} PATH="$T/bin:$PATH"
+# T_PREFIX: 시험 컨테이너 이름 앞부분. 같은 PC 에서 이 시험이 동시에 돌면 이름이 겹쳐 서로의 컨테이너를 지운다(11/7) → 다르게 준다
+export T_PREFIX="${T_PREFIX:-echo-t}"
+export A_CTX=test-a B_CTX=test-b A_HOST=$T_PREFIX-pg-a B_HOST=$T_PREFIX-pg-b
 exec </dev/null
 pass=0 fail=0
 ok()   { echo "  ✅ $*"; pass=$((pass+1)); }
 bad()  { echo "  ❌ $*"; fail=$((fail+1)); }
 check() { local name=$1 want=$2 got=$3; [[ $got == "$want" ]] && ok "$name ($got)" || bad "$name: 기대 '$want', 실제 '$got'"; }
-q()    { local c; [[ $1 == A ]] && c=echo-t-pg-a || c=echo-t-pg-b; docker exec -i "$c" psql -X -U postgres -d app -tAq -c "$2"; }
+q()    { local c; [[ $1 == A ]] && c=$T_PREFIX-pg-a || c=$T_PREFIX-pg-b; docker exec -i "$c" psql -X -U postgres -d app -tAq -c "$2"; }
 run()  { local out rc; out=$("$@" 2>&1); rc=$?; LAST_OUT=$out; echo "$out" | sed 's/^/     │ /'; return $rc; }
 writer() { (source "$S/common.sh"; writer_side) 2>/dev/null; }
 pauses() { grep -c 'PAUSE' "$STATE/pgb.log" 2>/dev/null || true; }
-cmhost() { sed -n 's/^app = host=\([^ ]*\).*/\1/p' "$STATE/cm_$1.ini"; }
-restart() { cp "$STATE/cm_$1.ini" "$STATE/pgb_$1.ini"; }   # 파드 재시작 흉내: copy-ini 가 ConfigMap 을 복사
+export POOL_SIDES="${POOL_SIDES:-}" WRITER_SETTLE=0
+ispool() { [[ " $POOL_SIDES " == *" $1 "* ]]; }
+# "재시작해도 남는 백엔드": 옛 방식 = ConfigMap, 풀 방식 = 표지판(Service) 자체
+cmhost() { if ispool "$1"; then (source "$S/common.sh"; pgb_backend "$1") 2>/dev/null; else sed -n 's/^app = host=\([^ ]*\).*/\1/p' "$STATE/cm_$1.ini"; fi; }
+inihost() { sed -n 's/^app = host=\([^ ]*\).*/\1/p' "$STATE/pgb_$1.ini"; }
+restart() { ispool "$1" || cp "$STATE/cm_$1.ini" "$STATE/pgb_$1.ini"; }   # 파드 재시작 흉내: copy-ini 가 ConfigMap 을 복사(풀 방식은 바뀌는 것 없음)
 wait_n() { local side=$1 n=$2 i; for i in $(seq 1 50); do [[ $(q "$side" "SELECT COALESCE(max(n),0) FROM demo.seq_write;") == "$n" ]] && return 0; sleep 0.2; done; return 1; }
 P1=11111111-1111-4111-8111-111111111111 P2=22222222-2222-4222-8222-222222222222
 P3=33333333-3333-4333-8333-333333333333 P4=44444444-4444-4444-8444-444444444444
@@ -29,7 +36,7 @@ trap cleanup EXIT
 
 echo "== 준비: Postgres A·B, 계정·발행, PgBouncer ini(A 가 쓰기 담당)"
 docker compose down -v >/dev/null 2>&1; docker compose up -d >/dev/null
-for c in echo-t-pg-a echo-t-pg-b; do until docker exec "$c" pg_isready -U postgres -d app >/dev/null 2>&1; do sleep 0.5; done; done
+for c in $T_PREFIX-pg-a $T_PREFIX-pg-b; do until docker exec "$c" pg_isready -U postgres -d app >/dev/null 2>&1; do sleep 0.5; done; done
 sleep 1
 for side in A B; do q "$side" "
   CREATE ROLE app_rw LOGIN; CREATE ROLE echo_monitor LOGIN;
@@ -42,6 +49,9 @@ rm -rf "$STATE"; mkdir -p "$STATE"; : > "$STATE/pgb.log"
 echo "app = host=echo-pg port=5432 dbname=app" > "$STATE/pgb_A.ini"
 echo "app = host=$A_HOST port=5432 dbname=app" > "$STATE/pgb_B.ini"
 cp "$STATE/pgb_A.ini" "$STATE/cm_A.ini"; cp "$STATE/pgb_B.ini" "$STATE/cm_B.ini"; : > "$STATE/cm.log"
+# 풀 방식 처음 상태(pool/README.md 3단계 뒤): 도쿄 표지판 = selector(A), 서울 표지판 = A 주소
+echo echo-pg > "$STATE/dw_sel_A"; : > "$STATE/dw_sel_B"; echo "$A_HOST" > "$STATE/dw_host_B"; : > "$STATE/dw.log"
+[[ -n $POOL_SIDES ]] && echo "     (풀 방식: $POOL_SIDES)"
 q A "INSERT INTO demo.seq_write (n) SELECT g FROM generate_series(1, 50) g;" >/dev/null
 run "$S/subscribe.sh" >/dev/null || { echo "subscribe.sh 실패"; echo "$LAST_OUT"; exit 1; }
 wait_n B 50 && ok "정방향 복제 A→B 초기 복사 50건" || bad "초기 복사"
@@ -119,12 +129,18 @@ check "B 의 P4 기록 (장부|누락|중복)" "62|0|0" "$(q B "SELECT rows_tota
 
 echo "== 10-1. 롤백 뒤 ConfigMap 맞추기 실패 → 종료 2, 같은 명령을 다시 돌리면 맞추고 ALREADY_DONE"
 Q1=99999999-9999-4999-8999-999999999999
+if ispool A; then   # 풀 방식에는 맞출 ConfigMap 이 없다 → 같은 롤백이 한 번에 끝나야 한다
+run env FAIL_CM=A PLAN_ID=$Q1 "$S/rollback.sh"; check "종료 코드(맞출 ConfigMap 없음)" 0 $?
+check "쓰기 담당은 A 로 바뀜" A "$(writer)"
+check "A 표지판 = A" echo-pg "$(cmhost A)"
+else
 run env FAIL_CM=A PLAN_ID=$Q1 "$S/rollback.sh"; check "종료 코드" 2 $?
 check "쓰기 담당은 A 로 바뀜" A "$(writer)"
 check "A ConfigMap 은 아직 옛 값" "$B_HOST" "$(cmhost A)"
 run env PLAN_ID=$Q1 "$S/rollback.sh"; check "다시 실행 → 종료 코드" 0 $?
 [[ $LAST_OUT == *ALREADY_DONE* ]] && ok "ALREADY_DONE 출력" || bad "ALREADY_DONE 출력 없음"
 check "A ConfigMap 맞춰짐" echo-pg "$(cmhost A)"
+fi
 restart A; restart B
 check "재시작 뒤 writer_side" A "$(writer)"
 
@@ -150,7 +166,7 @@ check "B 상태 그대로" REPLICA "$(bstate)"
 echo "== 13. (재난 흉내) B 로 복제되기 전 A 에만 쓴 행 n=63, 그리고 A 정지"
 q B "ALTER SUBSCRIPTION echo_sub DISABLE;" >/dev/null
 q A "INSERT INTO demo.seq_write (n) VALUES (63);" >/dev/null
-docker stop echo-t-pg-a >/dev/null
+docker stop $T_PREFIX-pg-a >/dev/null
 q B "ALTER SUBSCRIPTION echo_sub ENABLE;" >/dev/null
 check "B 상태" REPLICA "$(bstate)"
 
@@ -175,8 +191,8 @@ run env PLAN_ID=$P7 "$S/promote.sh"; check "종료 코드" 0 $?
 [[ $LAST_OUT == *ALREADY_WRITER* ]] && ok "ALREADY_WRITER 출력" || bad "ALREADY_WRITER 출력 없음"
 
 echo "== 17. A 가 살아남 → resync-a.sh 로 A 를 B 의 사본으로"
-docker start echo-t-pg-a >/dev/null
-until docker exec echo-t-pg-a pg_isready -U postgres -d app >/dev/null 2>&1; do sleep 0.5; done; sleep 1
+docker start $T_PREFIX-pg-a >/dev/null
+until docker exec $T_PREFIX-pg-a pg_isready -U postgres -d app >/dev/null 2>&1; do sleep 0.5; done; sleep 1
 run "$S/resync-a.sh"; check "종료 코드" 0 $?
 [[ $LAST_OUT == *"1건 (n: 63)"* ]] && ok "A 에만 있던 행 n=63 1건 보고" || bad "A 전용 행 보고 없음"
 check "writer_side" B "$(writer)"
@@ -226,5 +242,13 @@ q A "INSERT INTO demo.seq_write (n, request_id) VALUES (900, 'rid-900');" >/dev/
 wait_n B 900 && ok "칸을 넣은 뒤에도 A→B 복제" || bad "복제 멈춤"
 check "B 에 request_id 도 옴" rid-900 "$(q B "SELECT request_id FROM demo.seq_write WHERE n = 900;")"
 
+if [[ -n $POOL_SIDES ]]; then
+  echo "== P. 풀 방식: 관리 콘솔은 echo-pool 사이드카, 표지판만 바뀌고 ini 는 그대로"
+  for s in $POOL_SIDES; do
+    grep -q "^$s RECONNECT app;" "$STATE/pgb.log" && ok "$s 전환 때 RECONNECT" || bad "$s RECONNECT 없음"
+    [[ $s == A ]] && want=echo-pg || want=$A_HOST
+    check "$s ini 는 처음 값 그대로(표지판만 바뀜)" "$want" "$(inihost "$s")"
+  done
+fi
 echo; echo "결과: 통과 $pass · 실패 $fail"
 [[ $fail == 0 ]]

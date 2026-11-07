@@ -1,0 +1,19 @@
+# 도쿄의 "지금 쓰기 담당 DB" 표지판. PgBouncer(echo-pool)는 이 이름만 본다(host=db-writer.echo-data.svc.cluster.local).
+# ClusterIP 는 바뀌지 않고 뒤만 바꾼다 — DNS 를 거치지 않는다(ExternalName 은 운영 GKE kube-dns 캐시로 반영 30초, README "왜 ExternalName 이 아닌가").
+#   A 가 쓰기 담당(평소·롤백 뒤): selector app=echo-pg → 이 클러스터의 A 파드(파드 IP 가 바뀌어도 따라감)
+#   B 가 쓰기 담당(컷오버 뒤): selector 를 빼고 EndpointSlice db-writer-manual 에 서울 B 외부 LB IP
+# 바꾸는 것은 컷오버 스크립트(scripts/common.sh repoint)만. 손으로는 scripts/pool-point.sh.
+# echo-data 에 두는 이유: selector Service 는 같은 네임스페이스의 파드만 고를 수 있다. 이 Service 가 있으면 스크립트가 이 클러스터를 "풀 방식"으로 본다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-writer
+  namespace: echo-data
+  labels: { app.kubernetes.io/part-of: echo-pool, echo/writer-of: app }
+spec:
+  type: ClusterIP
+  selector: { app: echo-pg }
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432

@@ -1,4 +1,4 @@
-name: echo-cutover-test
+name: ${T_PREFIX:-echo-t}-cutover-test
 
 # replication/k8s/scripts 를 로컬에서 시험한다(인프라 12.1). 실제 클러스터 대신 Postgres 두 대(A 도쿄·B 서울 역할)를 띄우고,
 # tests/bin/kubectl 이 `kubectl exec` 를 이 컨테이너로 넘긴다. PgBouncer 는 띄우지 않고 ini 파일과 명령 기록으로 대신한다.
@@ -6,11 +6,11 @@ name: echo-cutover-test
 services:
   pg_a:
     image: postgres:17
-    container_name: echo-t-pg-a
+    container_name: ${T_PREFIX:-echo-t}-pg-a
     environment: { POSTGRES_DB: app, POSTGRES_HOST_AUTH_METHOD: trust }
     command: ["postgres", "-c", "wal_level=logical", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"]
   pg_b:
     image: postgres:17
-    container_name: echo-t-pg-b
+    container_name: ${T_PREFIX:-echo-t}-pg-b
     environment: { POSTGRES_DB: app, POSTGRES_HOST_AUTH_METHOD: trust }
     command: ["postgres", "-c", "wal_level=logical", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"]

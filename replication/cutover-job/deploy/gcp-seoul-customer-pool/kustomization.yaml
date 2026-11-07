@@ -1,0 +1,6 @@
+# B(서울 고객 GKE) 풀 계층 컷오버 권한: replication/k8s/pool 3단계(echo-pool 생성) 뒤 kubectl --context <고객 GKE> apply -k replication/cutover-job/deploy/gcp-seoul-customer-pool
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - echo-pool-rbac.yaml
+  - gke-customer-pool-binding.yaml

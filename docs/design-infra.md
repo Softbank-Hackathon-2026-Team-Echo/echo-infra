@@ -127,8 +127,8 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 ## 8. 보안·권한 (인프라 몫)
 
 - 장기 키 없음: GitHub Actions 는 OIDC(AWS 역할 `echo-dev-ci-build`, GCP WIF), 실행기는 관제탑 GSA 의 Google ID 토큰 → AWS STS. 비밀은 Secret Manager 참조.
-- 공개 경로 최소: 진입점 80 만 공개(9090 은 온프레 EIP <ONPREM_EIP>/32 만, remote write), ALB 는 진입점 a·b·GKE NAT 세 IP, nginx 는 내부 LB, DB cross-cloud 는 상대 NAT IP 만 + TLS(양쪽 PgBouncer `server_tls_sslmode = require`), GKE·EKS 노드 비공개, 온프레 들어오는 포트 0(터널).
-- 노드 커널(CVE-2026-98432, 11/5 점검): 진입점 VM(Debian 6.1.190-1)·EKS(AL2023 6.12.113)·GKE(1.36.5-gke.1982000, COS 6.12.113, RAPID 채널) 패치. 온프레 EC2(Ubuntu linux-aws 7.0)는 수정 패키지 전 — 인바운드 0·터널만이라 원격 경로 없음, 패치 나오면 재부팅(보안 담당).
+- 공개 경로 최소: 진입점 80 만 공개(9090 은 온프레 EIP <ONPREM_EIP>/32 만, remote write), ALB 는 진입점 a·b·GKE NAT 세 IP, nginx 는 내부 LB, DB cross-cloud 는 상대 NAT IP 만 + TLS(양쪽 PgBouncer `server_tls_sslmode = require`), GKE·EKS 노드 비공개, 온프레 들어오는 포트는 터널 외에 **복제용 5432 하나**(인프라 18: GKE NAT·도쿄 NAT 두 `/32` 만, TLS 필수, 복제 전용 계정, SPEC `infra-18-onprem-replication.md` 4절).
+- 노드 커널(CVE-2026-98432): 진입점 VM a·b(Debian 6.1.190-1)·EKS(AL2023 6.12.113)·GKE(1.36.5-gke.1982000, COS 6.12.113, RAPID 채널) 패치. 온프레 EC2 는 11/5 `-proposed` 수정판 `7.0.0-1017-aws`(D-093). **진입점 c(AWS 서울, 11/7 생성)는 정식 패키지 `7.0.0-1014-aws`(미수정)** 로 떠서 11/7 nft 완화(IPv4 옵션 패킷 drop, `onprem/hosts/cve-2026-98432-nft.sh`)를 넣었다. 온프레에도 5432 개방 전 같은 규칙을 추가 방어로 넣었다. 진입점 c 의 완화는 SSM 으로 넣어 기기를 다시 만들면 빠진다(부팅 스크립트 반영은 후속), 수정 커널이 정식으로 나오면 업데이트·재부팅.
 - DB 컷오버 신원 분리(인프라 12.2, PR #72): 컷오버는 서울 GKE `echo-ops` 의 Job 이 전용 신원(GSA `echo-dev-cutover` → AWS 역할 `echo-dev-cutover`, 두 클러스터 `echo-data` 에 Role 최소 권한·secrets 없음)으로 돌린다. echo-was 실행기는 Job 생성·상태 읽기만. 11/5 Terraform 적용, 매니페스트·이미지 적용 진행 중.
 - 온프레 실행기: 전용 SA + ClusterRole 최소 권한(네임스페이스 get·list·create·delete, 노드 get·list — 11/4 환경 카드 노드 수용 추가, RoleBinding get·create, `echo-app-deployer` bind) + ValidatingAdmissionPolicy(라벨 `managed-by=echo-was` 네임스페이스 밖은 거부).
 - DB 계정 분리: `app_rw`(앱 쓰기)·`repl_user`(복제 전용, REPLICATION)·`pgbouncer_auth`(auth_query 만)·`echo_monitor`(pg_monitor 읽기 전용). 비밀번호는 k8s Secret `echo-pg-secret`·GCP Secret Manager 에만, 저장소·이슈·Slack 에 0건.

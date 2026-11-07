@@ -15,15 +15,87 @@ B_LOCAL="${B_LOCAL:-echo-pg}"
 # psql on Postgres pod: pg <A|B> "<sql>" [-v var=val ...]
 pg() { local side=$1; shift; local ctx; [[ $side == A ]] && ctx=$A_CTX || ctx=$B_CTX
   kubectl --context "$ctx" -n "$NS" exec -i echo-pg-0 -c postgres -- psql -X -v ON_ERROR_STOP=1 -U postgres -d app -tA "$@"; }
-# pgbouncer admin console: pgb <A|B> "<cmd>". pgbouncer 이미지에 psql 이 없어 Postgres 파드에서 보낸다(비밀번호 = 파드 env PGB_AUTH_PASSWORD).
-pgb() { local side=$1; local cmd=$2; local ctx; [[ $side == A ]] && ctx=$A_CTX || ctx=$B_CTX
-  kubectl --context "$ctx" -n "$NS" exec -i echo-pg-0 -c postgres -- sh -c \
-    'PGPASSWORD=$PGB_AUTH_PASSWORD psql -X -h echo-pgbouncer -p 6432 -U pgbouncer_auth -d pgbouncer -tAc "$0"' "$cmd"; }
-# pgbouncer ini 의 백엔드 host 를 바꾸고 RELOAD: repoint <A|B> <new_host>
-repoint() { local side=$1; local host=$2; local ctx; [[ $side == A ]] && ctx=$A_CTX || ctx=$B_CTX
-  kubectl --context "$ctx" -n "$NS" exec -i deploy/echo-pgbouncer -- sh -c \
-    'sed -i "s/^app = host=[^ ]*/app = host=$0/" /etc/pgbouncer/pgbouncer.ini && grep "^app = " /etc/pgbouncer/pgbouncer.ini' "$host" >/dev/null
-  pgb "$side" "RELOAD;" >/dev/null; }
+# ── 풀 방식(replication/k8s/pool, PgBouncer-DB 분리) ────────────────────────────────────────────
+# 클러스터마다 고른다: echo-data 에 표지판 Service db-writer 가 있으면 풀 방식, 없으면 옛 방식(echo-data 의 PgBouncer ini).
+# 한 클러스터씩 옮기는 동안 두 방식이 섞여도 같은 스크립트가 돈다. Job 은 환경 변수를 더 받을 수 없어(VAP) 클러스터 상태로 고른다.
+#  - 관리 콘솔: echo-pool 의 PgBouncer 파드 admin 사이드카(비밀번호 = 사이드카 env. DB 파드·pgbouncer_auth 불필요)
+#  - 쓰기 담당 주소: 표지판 뒤만 바꾼다 — 자기 쪽이면 selector app=echo-pg, 상대 쪽이면 EndpointSlice db-writer-manual(IP)
+POOL_NS="${POOL_NS:-echo-pool}"
+WRITER_SVC="${WRITER_SVC:-db-writer}"
+WRITER_SLICE="${WRITER_SVC}-manual"
+# 표지판을 바꾼 뒤 노드의 서비스 규칙(kube-proxy·Dataplane V2)에 반영될 때까지 기다리는 초.
+# 운영 측정(11/7, 명령이 끝난 뒤부터): EKS·고객 GKE 모두 1초 안, 옛 쪽 응답 섞임 0 → 여유를 두고 2초(pool/README.md)
+WRITER_SETTLE="${WRITER_SETTLE:-2}"
+ctx_of() { [[ $1 == A ]] && echo "$A_CTX" || echo "$B_CTX"; }
+local_of() { [[ $1 == A ]] && echo "$A_LOCAL" || echo "$B_LOCAL"; }
+# 풀 방식 = 표지판이 있고 옛 PgBouncer(echo-data/echo-pgbouncer Deployment)가 없을 때. 새 풀을 옆에 띄운 동안(pool/README.md 3단계)은
+# 앱이 아직 옛 PgBouncer 를 쓰므로 옛 방식으로 PAUSE·repoint 해야 한다 — 옛 Deployment 를 지우는 4단계에서 풀 방식이 된다.
+# POOL_FORCE=1 은 설치 중 pool-point.sh 로 표지판만 맞출 때(쓰기 담당은 바꾸지 않음).
+pool_mode() { local ctx; ctx=$(ctx_of "$1")
+  kubectl --context "$ctx" -n "$NS" get svc "$WRITER_SVC" -o name >/dev/null 2>&1 || return 1
+  [[ ${POOL_FORCE:-} == 1 ]] && return 0
+  ! kubectl --context "$ctx" -n "$NS" get deploy echo-pgbouncer -o name >/dev/null 2>&1; }
+# host → IPv4 목록(공백 구분). 이미 IP 면 그대로. NLB 처럼 DNS 이름이면 지금 푼다(EndpointSlice 는 IP 만 받는다).
+resolve_ipv4() { local h=$1 ips
+  if [[ $h =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "$h"; return 0; fi
+  ips=$(getent ahostsv4 "$h" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' || true)
+  # getent 가 없으면 python3, 그것도 없으면 python(Windows 데스크톱은 python 만 있다, 11/7)
+  local py; for py in python3 python; do
+    [[ -n ${ips// /} ]] && break
+    ips=$("$py" -c 'import socket,sys; print(" ".join(sorted({a[4][0] for a in socket.getaddrinfo(sys.argv[1], None, socket.AF_INET)})))' "$h" 2>/dev/null || true)
+  done
+  [[ -n ${ips// /} ]] || { echo "[중단] $h 를 IPv4 로 풀지 못했다" >&2; return 1; }
+  echo "${ips% }"; }
+
+# pgbouncer admin console: pgb <A|B> "<cmd>"
+# 옛 방식: pgbouncer 이미지에 psql 이 없어 Postgres 파드에서 보낸다(비밀번호 = 파드 env PGB_AUTH_PASSWORD).
+pgb() { local side=$1; local cmd=$2; local ctx; ctx=$(ctx_of "$side")
+  if pool_mode "$side"; then
+    kubectl --context "$ctx" -n "$POOL_NS" exec -i deploy/echo-pgbouncer -c admin -- \
+      psql -X -h 127.0.0.1 -p 6432 -U pgbouncer_admin -d pgbouncer -tAc "$cmd"
+  else
+    kubectl --context "$ctx" -n "$NS" exec -i echo-pg-0 -c postgres -- sh -c \
+      'PGPASSWORD=$PGB_AUTH_PASSWORD psql -X -h echo-pgbouncer -p 6432 -U pgbouncer_auth -d pgbouncer -tAc "$0"' "$cmd"
+  fi; }
+# 쓰기 담당 주소를 바꾼다: repoint <A|B> <new_host>   (new_host = *_LOCAL 이면 자기 쪽 Postgres)
+# 옛 방식: pgbouncer ini 의 백엔드 host 를 바꾸고 RELOAD.
+# 풀 방식: 표지판 뒤를 바꾸고 — 상대 쪽: EndpointSlice 먼저 → selector 빼기 / 자기 쪽: selector 먼저 → EndpointSlice 지우기(뒤가 비는 순간이 없게) —
+#          반영을 기다린 뒤 RECONNECT(옛 DB 로 열려 있던 서버 연결을 닫는다). 부르는 쪽이 PAUSE 중이어야 한다.
+repoint() { local side=$1; local host=$2; local ctx ips addr; ctx=$(ctx_of "$side")
+  if pool_mode "$side"; then
+    if [[ $host == "$(local_of "$side")" ]]; then
+      kubectl --context "$ctx" -n "$NS" patch svc "$WRITER_SVC" --type merge -p '{"spec":{"selector":{"app":"echo-pg"}}}' >/dev/null
+      kubectl --context "$ctx" -n "$NS" delete endpointslice "$WRITER_SLICE" --ignore-not-found >/dev/null
+    else
+      ips=$(resolve_ipv4 "$host") || return 1
+      addr=$(printf '"%s",' $ips); addr="[${addr%,}]"
+      kubectl --context "$ctx" -n "$NS" apply -f - >/dev/null <<YAML
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: $WRITER_SLICE
+  namespace: $NS
+  labels: { kubernetes.io/service-name: $WRITER_SVC, endpointslice.kubernetes.io/managed-by: echo-cutover }
+  annotations: { echo/writer-host: "$host" }
+addressType: IPv4
+ports: [ { name: postgres, port: 5432, protocol: TCP } ]
+endpoints: [ { addresses: $addr } ]
+YAML
+      kubectl --context "$ctx" -n "$NS" patch svc "$WRITER_SVC" --type merge -p '{"spec":{"selector":null}}' >/dev/null
+      # selector 를 빼도 자기 쪽 파드를 가리키는 것이 남는다(11/7 k3s 시험에서 확인):
+      #  - 컨트롤러가 만든 EndpointSlice, 그리고 옛 Endpoints 객체 — 이것이 남으면 미러링 컨트롤러가 슬라이스를 다시 만든다
+      # → Endpoints 를 지우고, 우리 것(managed-by=echo-cutover)이 아닌 표지판 슬라이스를 모두 지워 뒤가 상대 쪽 하나가 되게 한다
+      kubectl --context "$ctx" -n "$NS" delete endpoints "$WRITER_SVC" --ignore-not-found >/dev/null 2>&1
+      kubectl --context "$ctx" -n "$NS" delete endpointslice --ignore-not-found \
+        -l "kubernetes.io/service-name=$WRITER_SVC,endpointslice.kubernetes.io/managed-by!=echo-cutover" >/dev/null
+    fi
+    sleep "$WRITER_SETTLE"
+    pgb "$side" "RECONNECT app;" >/dev/null
+  else
+    kubectl --context "$ctx" -n "$NS" exec -i deploy/echo-pgbouncer -- sh -c \
+      'sed -i "s/^app = host=[^ ]*/app = host=$0/" /etc/pgbouncer/pgbouncer.ini && grep "^app = " /etc/pgbouncer/pgbouncer.ini' "$host" >/dev/null
+    pgb "$side" "RELOAD;" >/dev/null
+  fi; }
 now() { date +%s.%N; }
 
 # ── 컷오버·롤백 결과 표 (인프라 7.2, echo-infra#57) ───────────────────────────────────────────────
@@ -112,7 +184,14 @@ record_run() {
 sub_enabled() { pg "$1" -c "SELECT count(*) FROM pg_subscription WHERE subname = '$2' AND subenabled;"; }
 
 # PgBouncer 백엔드 host: pgb_backend <A|B>
-pgb_backend() { local side=$1 ctx; [[ $side == A ]] && ctx=$A_CTX || ctx=$B_CTX
+# 풀 방식: 표지판에 selector 가 있으면 자기 쪽(*_LOCAL), 없으면 EndpointSlice 에 적어 둔 상대 주소(echo/writer-host). 둘 다 없으면 빈 값.
+pgb_backend() { local side=$1 ctx sel; ctx=$(ctx_of "$side")
+  if pool_mode "$side"; then
+    sel=$(kubectl --context "$ctx" -n "$NS" get svc "$WRITER_SVC" -o 'jsonpath={.spec.selector.app}')
+    if [[ $sel == echo-pg ]]; then local_of "$side"
+    else kubectl --context "$ctx" -n "$NS" get endpointslice "$WRITER_SLICE" -o 'jsonpath={.metadata.annotations.echo/writer-host}' 2>/dev/null || true; fi
+    return 0
+  fi
   kubectl --context "$ctx" -n "$NS" exec -i deploy/echo-pgbouncer -- \
     sed -n 's/^app = host=\([^ ]*\).*/\1/p' /etc/pgbouncer/pgbouncer.ini; }
 
@@ -120,7 +199,9 @@ pgb_backend() { local side=$1 ctx; [[ $side == A ]] && ctx=$A_CTX || ctx=$B_CTX
 # ini 는 emptyDir 이고 파드가 다시 뜨면 copy-ini 가 ConfigMap 을 복사한다. repoint 만 하면 재시작 때 옛 백엔드로 돌아가
 # 쓰기 담당이 둘이 될 수 있다(PR #45 리뷰). 쓰기 정지 창 밖에서 부르고, 이미 같으면 아무것도 하지 않는다.
 # `f || …` 로 불리면 함수 안에서 set -e 가 꺼지므로, 실패할 수 있는 명령마다 직접 return 1 한다.
-persist_backend() { local side=$1 ctx live ini new esc; [[ $side == A ]] && ctx=$A_CTX || ctx=$B_CTX
+# 풀 방식은 주소가 표지판(Service) 자체에 있어 재시작해도 그대로다 → 할 일 없음.
+persist_backend() { local side=$1 ctx live ini new esc; ctx=$(ctx_of "$side")
+  pool_mode "$side" && return 0
   live=$(pgb_backend "$side") && [[ -n $live ]] || return 1
   ini=$(kubectl --context "$ctx" -n "$NS" get configmap echo-pgbouncer-ini -o 'jsonpath={.data.pgbouncer\.ini}') || return 1
   [[ $(sed -n 's/^app = host=\([^ ]*\).*/\1/p' <<<"$ini") == "$live" ]] && return 0

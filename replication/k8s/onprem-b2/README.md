@@ -65,6 +65,107 @@ EOF2
 - 온프레 앱에 쓰기 3건 → B2 반영 확인 0.53초(kubectl 왕복 포함)
 - 발행 쪽 `pg_stat_replication`: `echo_onprem_sub` streaming, replay_lag 약 5ms, 슬롯 밀림 0 bytes
 - AWS 복제본 추가 뒤 쓰기 2건: 온프레·GCP·AWS 모두 10행, replay_lag GCP 약 5ms·AWS 약 36ms, 두 슬롯 밀림 0 bytes
+- 복제 시험(11/7 16:39 KST): 온프레 앱에 쓰기 20건(전부 201, 0.34초) → 온프레·GCP·AWS 모두 31행, 마지막 id 31, 전체 행 md5 `a8c04f366caaf6347969c24b528a7a9a` 세 곳 일치. replay_lag GCP 약 6ms·AWS 약 35ms, 두 슬롯 밀림 0 bytes
+
+## 장애 전환: 온프레 → GKE (GCP B2 승격 + 대기 앱)
+
+온프레가 죽으면 GCP B2 를 원본으로 올리고, GKE 에 미리 둔 같은 앱을 켠다. AWS B2 는 그대로 두어 "온프레의 마지막 상태" 증인으로 쓴다(잃은 행 수 계산).
+
+| 파일 | 하는 일 |
+|---|---|
+| `standby-app/` | GCP 고객 클러스터 `echo-data-onprem` 에 PgBouncer(→ B2) + 앱(replicas 0, 온프레와 같은 이미지 digest) |
+| `scripts/simulate-down.sh down` | 온프레에 쓰기를 넣다가(`LOAD_SEC`, 기본 10초) 그 순간 nft 로 GKE NAT 의 5432 를 끊고 온프레 앱을 0 으로 내린다. 201 받은 쓰기 수를 출력 |
+| `scripts/failover.sh` | B2 구독 끄기 → 시퀀스 +1000 → 대기 앱 1 → 앱으로 쓰기 1건 → AWS B2 와 비교해 잃은 행 수. `CONFIRM=yes` 필요 |
+| `scripts/simulate-down.sh up` | nft 표 삭제, 온프레 앱 1 |
+| `scripts/rejoin.sh` | 대기 앱 0 → 옛 구독·온프레 슬롯 정리 → B2 비우고 구독 다시 만들기(초기 복사) → 세 곳 비교. `CONFIRM=yes` 필요 |
+
+처음 한 번 (GCP 고객 클러스터):
+
+```bash
+C=gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke
+# 앱 DATABASE_URL: B2 비밀번호로 만든다(화면에 찍지 않음)
+PW=$(kubectl --context $C -n echo-data-onprem get secret onprem-b2-db -o jsonpath='{.data.password}' | base64 -d)
+kubectl --context $C -n echo-data-onprem create secret generic onprem-standby-app \
+  --from-literal=database-url="postgresql://demo:${PW}@demo-pgbouncer:6432/demo"; unset PW
+kubectl --context $C apply -k standby-app
+```
+
+시험 순서:
+
+```bash
+GKE_NAT=<GCP_NAT_IP> scripts/simulate-down.sh down   # 온프레 장애 (GKE Cloud NAT 출발 IP)
+CONFIRM=yes scripts/failover.sh        # GKE 로 전환, 잃은 행 수
+GKE_NAT=<GCP_NAT_IP> scripts/simulate-down.sh up     # 온프레 복구
+CONFIRM=yes scripts/rejoin.sh          # 온프레 = 원본, B2 = 복제본으로 되돌리기
+```
+
+AWS 로도 같은 방식이다(`TARGET=aws`, 증인은 GCP B2). EKS 대기 앱은 같은 매니페스트를 쓰고 환경 이름만 바꾼다:
+
+```bash
+C=echo-dev-eks   # Secret onprem-standby-app 은 위 "처음 한 번" 명령에서 C 만 바꿔 만든다
+kubectl --context $C apply -k standby-app
+kubectl --context $C -n echo-data-onprem set env deploy/demo-app ECHO_ENVIRONMENT=aws
+TARGET=aws CONFIRM=yes scripts/failover.sh
+TARGET=aws CONFIRM=yes scripts/rejoin.sh
+```
+
+AWS 무중단 시험 (11/7 20:00 KST): AWS B2 승격 5.4초, EKS 앱 기동 7.0초, 전체 12.3초. 승격 전 AWS B2 37행·md5 가 GCP B2(증인)와 같았고, EKS 앱이 `environment: aws` 로 38행(빠짐·중복 0), 쓰기 201. `rejoin.sh` 뒤 온프레·AWS·GCP 37행·md5 일치, preflight 20/20.
+
+무중단 시험 (11/7 17:51 KST, `simulate-down` 없이 온프레는 그대로 두고 B2 만 승격): B2 승격 3.3초, GKE 앱 기동 15.1초, 전체 18.4초. 승격 전 B2 37행·md5 가 AWS B2(증인)와 같았고, GKE 앱 쓰기 201(id 1038, 시퀀스 +1000). `rejoin.sh` 뒤 온프레·GCP·AWS 37행·md5 일치, preflight 20/20. 온프레를 실제로 끊는 시험(`simulate-down`)은 아직 하지 않았다.
+
+- 승격 뒤 B2 에 쓴 행은 `rejoin.sh` 가 버린다(시험용). 온프레로 데이터를 되돌리는 복귀는 범위 밖이다.
+- 손님 주소 전환(온프레 터널 주소를 GKE 로)은 다음 단계다. GKE 에 같은 Cloudflare 터널 연결기를 두면 온프레 연결기가 끊길 때 같은 주소가 GKE 로 간다.
+- 서울 B(`echo-data`)와 같은 클러스터라 모든 명령은 `-n echo-data-onprem` 이다.
+
+## 역방향: GCP 장애 시 온프레로 이전
+
+온프레 PG 의 별도 DB `gcpcopy` 가 서울 B 의 발행 `echo_pub`(FOR ALL TABLES)를 구독한다. 도쿄 A → 서울 B → 온프레로 이어진다.
+온프레가 서울 B 로 **나가는** 연결이라 온프레 인바운드는 늘지 않는다. 장애 시 온프레 메인 앱(`demo-y6cz3jrc/app`)이 `gcpcopy` 를 보게 바꾼다.
+
+| 위치 | 설정 (11/7) |
+|---|---|
+| 서울 B (`echo-data/echo-pg`) | 복제 계정 `repl_gcp_onprem`(REPLICATION + pg_read_all_data), `max_slot_wal_keep_size=2GB`(ALTER SYSTEM, 재시작 없음), 외부 LB `echo-pg-external` 허용 IP 에 온프레 EIP `<ONPREM_EIP>/32` 추가 |
+| 온프레 | DB `gcpcopy`(스키마는 서울 B 에서 pg_dump -s), 구독 `echo_gcp_onprem_sub`(TLS), 비밀번호 Secret `echo-demo/gcp-repl`, 앱용 Secret `demo-y6cz3jrc/gcpcopy-env` |
+
+```bash
+scripts/gcp-to-onprem.sh status                      # 구독·행 수·서울 B 와 비교
+scripts/gcp-to-onprem.sh prepare                     # 앱용 Secret (기기 안에서 DB 이름만 gcpcopy 로)
+CONFIRM=yes scripts/gcp-to-onprem.sh failover        # 구독 끄기 → 시퀀스 +1000 → 앱이 gcpcopy 를 봄
+CONFIRM=yes scripts/gcp-to-onprem.sh back            # 앱 원래 DB 로, 구독 다시 켬
+CONFIRM=yes scripts/gcp-to-onprem.sh resync          # 시험 중 쓴 행 버리고 재구독(서울 B 와 똑같이)
+```
+
+시험 (11/7 17:25~17:28 KST): failover 11.1초, 온프레 앱이 GCP 데이터 223행(빠짐·중복 0)을 보여 주고 새 쓰기 201. back·resync 뒤 서울 B 와 온프레 사본 223행·md5 일치, preflight 20/20.
+
+- 서울 B 를 실제로 끄지 않고 온프레 쪽 구독만 끊어 시험했다. 시연 경로 영향 없음.
+- 비동기라 GCP 가 갑자기 죽으면 지연만큼 마지막 쓰기를 잃을 수 있다.
+- 온프레 → 서울 B 로 데이터를 되돌리는 복귀는 범위 밖이다(시험은 resync 로 버린다).
+
+## 요청 재생: 클라우드 → 온프레 (인프라 12.4 × 18)
+
+GCP 장애로 온프레에 이전했을 때, 온프레 사본(`gcpcopy`)에 복제되지 못한 쓰기를 진입점 a 요청 기록(15분 보관)으로 온프레 앱에 다시 보내 메운다.
+`replay.sh` 는 보낼 곳을 `REPLAY_BASE` 로 받으므로 온프레 주소(`https://demo-onprem-y6cz3jrc.echoport.uk`)를 그대로 쓴다. 재생은 진입점 a 안에서 돌려 기록 토큰이 VM 밖으로 나오지 않는다.
+
+```bash
+CONFIRM=yes scripts/replay-to-onprem-test.sh     # 기록 켜기 → 사본 구독 끄기 → 메인 주소 쓰기 N건 → 온프레 이전 → 재생 2회 → 확인 → 정리
+# 6단계 전에 멈췄으면 이어서: RESUME_T0=<UNIX 초> RESUME_KEYS=k1,k2,… CONFIRM=yes scripts/replay-to-onprem-test.sh
+```
+
+시험 (11/7 18:48~18:50 KST):
+
+| 단계 | 결과 |
+|---|---|
+| 메인 주소(`demo-y6cz3jrc.echoport.uk`)로 멱등 키 쓰기 5건 | 5건 201, 서울 B 223 → 228행(시험 키 5/5) |
+| 온프레 이전 (`gcp-to-onprem.sh failover`) | 10.8초, 온프레 사본 223행(시험 키 0/5 = 빠진 쓰기 5건) |
+| 재생 1회차 | 보냄 5 · 새로 들어감 5 · 실패 0 |
+| 재생 2회차 | 보냄 5 · 이미 있음 5 (중복 0) |
+| 확인 | 온프레 사본 시험 키 5/5, 228행 = 서울 B, `request_id` 중복 0 |
+| 정리 | 기록 끔(`journal.enabled=0`), back·resync 뒤 서울 B 와 온프레 사본 228행·md5 일치, preflight 20/20 |
+
+- 진입점 a 요청 기록은 평소 꺼져 있다(`journal.enabled=0`). 재생으로 메우려면 장애 전에 켜져 있어야 한다.
+- 기록은 진입점 a 를 거친 쓰기만, 15분만 남는다. 멱등 키가 없는 쓰기는 재생하지 않는다.
+- 진입점 VM 에 `bc` 가 없어 `replay.sh` 의 걸린 시간 표시만 빠진다(결과에는 영향 없음).
+- 시험 중 고친 것: 기록 끄기 trap 을 켜기 전에 걸기, `failover` 요약 curl 이 `pipefail` 로 스크립트를 멈추던 문제.
 
 ## 주의
 

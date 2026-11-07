@@ -1,0 +1,55 @@
+# 온프레와 같은 앱. 평소 replicas 0(대기). DATABASE_URL 은 Secret onprem-standby-app 에서 읽는다
+# (README 「대기 앱」의 명령으로 onprem-b2-db 비밀번호에서 만든다. 저장소에 두지 않는다).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app
+  labels: { app: demo-app, part-of: onprem-failover }
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: demo-app
+  template:
+    metadata:
+      labels:
+        app: demo-app
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+      containers:
+        - name: app
+          image: ghcr.io/softbank-hackathon-2026-team-echo/echo-demo-app@sha256:3a8211ce82191fdee4da70d736f4946bf8be84c052bf889f7f5c2e6b596405bd
+          env:
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: onprem-standby-app, key: database-url } }
+            # 화면에서 어디서 도는지 보이게 온프레와 다른 값을 준다.
+            - { name: ECHO_ENVIRONMENT, value: gcp }
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 3
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 50m, memory: 96Mi }
+            limits: { memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app
+  labels: { app: demo-app, part-of: onprem-failover }
+spec:
+  selector:
+    app: demo-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
