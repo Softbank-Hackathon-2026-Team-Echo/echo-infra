@@ -67,6 +67,42 @@ EOF2
 - AWS 복제본 추가 뒤 쓰기 2건: 온프레·GCP·AWS 모두 10행, replay_lag GCP 약 5ms·AWS 약 36ms, 두 슬롯 밀림 0 bytes
 - 복제 시험(11/7 16:39 KST): 온프레 앱에 쓰기 20건(전부 201, 0.34초) → 온프레·GCP·AWS 모두 31행, 마지막 id 31, 전체 행 md5 `a8c04f366caaf6347969c24b528a7a9a` 세 곳 일치. replay_lag GCP 약 6ms·AWS 약 35ms, 두 슬롯 밀림 0 bytes
 
+## 장애 전환: 온프레 → GKE (GCP B2 승격 + 대기 앱)
+
+온프레가 죽으면 GCP B2 를 원본으로 올리고, GKE 에 미리 둔 같은 앱을 켠다. AWS B2 는 그대로 두어 "온프레의 마지막 상태" 증인으로 쓴다(잃은 행 수 계산).
+
+| 파일 | 하는 일 |
+|---|---|
+| `standby-app/` | GCP 고객 클러스터 `echo-data-onprem` 에 PgBouncer(→ B2) + 앱(replicas 0, 온프레와 같은 이미지 digest) |
+| `scripts/simulate-down.sh down` | 온프레에 쓰기를 넣다가(`LOAD_SEC`, 기본 10초) 그 순간 nft 로 GKE NAT 의 5432 를 끊고 온프레 앱을 0 으로 내린다. 201 받은 쓰기 수를 출력 |
+| `scripts/failover.sh` | B2 구독 끄기 → 시퀀스 +1000 → 대기 앱 1 → 앱으로 쓰기 1건 → AWS B2 와 비교해 잃은 행 수. `CONFIRM=yes` 필요 |
+| `scripts/simulate-down.sh up` | nft 표 삭제, 온프레 앱 1 |
+| `scripts/rejoin.sh` | 대기 앱 0 → 옛 구독·온프레 슬롯 정리 → B2 비우고 구독 다시 만들기(초기 복사) → 세 곳 비교. `CONFIRM=yes` 필요 |
+
+처음 한 번 (GCP 고객 클러스터):
+
+```bash
+C=gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke
+# 앱 DATABASE_URL: B2 비밀번호로 만든다(화면에 찍지 않음)
+PW=$(kubectl --context $C -n echo-data-onprem get secret onprem-b2-db -o jsonpath='{.data.password}' | base64 -d)
+kubectl --context $C -n echo-data-onprem create secret generic onprem-standby-app \
+  --from-literal=database-url="postgresql://demo:${PW}@demo-pgbouncer:6432/demo"; unset PW
+kubectl --context $C apply -k standby-app
+```
+
+시험 순서:
+
+```bash
+scripts/simulate-down.sh down          # 온프레 장애
+CONFIRM=yes scripts/failover.sh        # GKE 로 전환, 잃은 행 수
+scripts/simulate-down.sh up            # 온프레 복구
+CONFIRM=yes scripts/rejoin.sh          # 온프레 = 원본, B2 = 복제본으로 되돌리기
+```
+
+- 승격 뒤 B2 에 쓴 행은 `rejoin.sh` 가 버린다(시험용). 온프레로 데이터를 되돌리는 복귀는 범위 밖이다.
+- 손님 주소 전환(온프레 터널 주소를 GKE 로)은 다음 단계다. GKE 에 같은 Cloudflare 터널 연결기를 두면 온프레 연결기가 끊길 때 같은 주소가 GKE 로 간다.
+- 서울 B(`echo-data`)와 같은 클러스터라 모든 명령은 `-n echo-data-onprem` 이다.
+
 ## 주의
 
 - 스키마(DDL)는 복제되지 않는다. 온프레에 칸·표를 더하면 B2 에 먼저 더한다(예: 멱등 쓰기 `request_id`).

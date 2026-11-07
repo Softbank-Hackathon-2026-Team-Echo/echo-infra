@@ -1,0 +1,7 @@
+# 온프레 장애 시 GKE 에서 켜는 대기 앱 (인프라 18). GCP 고객 클러스터의 B2 옆(echo-data-onprem)에 둔다.
+# 평소 앱은 replicas 0 이다. 켜는 것은 scripts/failover.sh 가 B2 승격 뒤에 한다.
+# 이미지는 온프레 기기에서 돌고 있는 것과 같은 digest 다(11/7 확인). 온프레를 올리면 함께 올린다.
+namespace: echo-data-onprem
+resources:
+  - pgbouncer.yaml
+  - app.yaml
