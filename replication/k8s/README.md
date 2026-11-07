@@ -120,6 +120,15 @@ scripts/verify.sh
 - **컷오버·롤백 결과 표 `echo_ops.cutover_runs`**(인프라 7.2, [#57](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-infra/issues/57)): `cutover.sh`·`rollback.sh` 가 RESUME 뒤 새 primary 에 한 줄(종류 CUTOVER/ROLLBACK · 쓰기 정지 ms · 드레인·따라잡기·전환 ms · 장부 건수 · 누락 · 중복)을 쓴다. echo-was 는 같은 `echo_monitor` 연결로 읽어 이전 계획 결과에 붙인다(API 서버 16, [echo-was#63](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-was/issues/63)). 기록이 실패해도 컷오버·롤백은 성공으로 둔다. 표는 `subscribe.sh`·`cutover.sh`·`rollback.sh` 가 시작할 때 `ops_table_ensure` 로 양쪽에 있는지 보고(없으면 만들고 켜진 구독을 REFRESH), 따로 `scripts/ops-table.sh` 로도 만든다 — A 를 새로 세워도 다시 생긴다.
 - 컷오버·롤백 **실행 자체**는 아직 echo-was 이전 계획에 없다(복제 지연 확인만). 시연은 사람이 `cutover.sh` 를 돌린다. 이전 계획과 잇는 것은 인프라 12.2(컷오버 Job, [#67](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-infra/issues/67), `replication/cutover-job/`)·API 서버 17([echo-was#75](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-was/issues/75))에서 한다. 일꾼은 위 종료 코드로 다음 동작을 정한다.
 
+## EKS 노드 네트워크 — vpc-cni 외부 SNAT ([#140](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-infra/issues/140))
+
+B 가 쓰기 담당일 때 A PgBouncer 는 `db-writer`(ClusterIP) → `db-writer-manual` EndpointSlice(B LB 공인 IP)로 간다. vpc-cni 기본값(`AWS_VPC_K8S_CNI_EXTERNALSNAT=false`, 노드 SNAT)에서는 **보조 ENI 에 붙은 파드**가 이 경로를 쓰면 SYN 이 보조 ENI 로 나가면서 출발 주소가 주 ENI 주소로 SNAT 되어 VPC 가 버린다(nat PREROUTING 에서 kube-proxy DNAT 가 CNI connmark 보다 먼저라 0x80 이 안 붙음). 증상은 PgBouncer `connect failed (age=15s)`. 같은 파드에서 B IP 로 **직접** 붙으면 된다.
+
+- 수정: `terraform/environments/aws/dev/eks.tf` 의 `aws_eks_addon.this["vpc-cni"]` 에 `configuration_values = {env = {AWS_VPC_K8S_CNI_EXTERNALSNAT = "true"}}`. 노드가 사설 서브넷 + NAT 1개라 나가는 공인 IP 는 그대로 `18.180.171.76`(B 허용 목록 값).
+- **운영은 11/8 04:17 KST 에 `aws eks update-addon --configuration-values '{"env":{"AWS_VPC_K8S_CNI_EXTERNALSNAT":"true"}}' --resolve-conflicts OVERWRITE` 로 먼저 넣었다.** aws-node 두 대가 04:17:47~04:17:56 에 차례로 재시작, 같은 시간 손님 주소 GET·쓰기 실패 0. 적용 뒤 노드 nat 표에서 `AWS-SNAT-CHAIN-0`·`AWS-CONNMARK-CHAIN-0` 규칙이 빠졌고, A PgBouncer 파드 → ClusterIP(B LB 끝점) TCP open·psql 인증 단계 도달.
+- `terraform plan` 은 돌리지 않았다: 적용한 사람 기기에 `backend.hcl`·`terraform.tfvars` 가 없다. 다음 plan 때 이 자원은 이미 같은 값이라 변경 0 이어야 하고, 다른 diff 가 보이면 이 PR 과 무관한 드리프트다.
+- 원복: `aws eks update-addon --cluster-name echo-dev-eks --addon-name vpc-cni --configuration-values '{"env":{"AWS_VPC_K8S_CNI_EXTERNALSNAT":"false"}}' --resolve-conflicts OVERWRITE`(Terraform 으로는 이 줄을 지우고 apply). 원복하면 #140 증상이 돌아온다.
+
 ## 주의
 
 - `FOR ALL TABLES` 발행이라도 **새 테이블은 B 에 DDL 을 먼저 넣고** `ALTER SUBSCRIPTION echo_sub REFRESH PUBLICATION`.
