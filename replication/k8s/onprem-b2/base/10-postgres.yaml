@@ -1,0 +1,68 @@
+# B2 Postgres 17 (온프레와 같은 메이저). 구독자 → 온프레 장애 시 승격해 원본이 된다.
+# - DB·계정 이름은 온프레와 같게(demo/demo) 둬서 승격 뒤 앱의 DATABASE_URL 모양이 바뀌지 않는다. 비밀번호는 B2 고유(Secret onprem-b2-db).
+# - 밖에서 B2 로 들어오는 연결은 없다(ClusterIP 없음 헤드리스). 온프레로 나가는 구독 연결만 TLS(sslmode=require)로 연다.
+# - 구독 비밀번호는 Secret onprem-repl(온프레 echo-demo/demo-db-repl 과 같은 값, README 의 옮기는 명령으로만 만든다)을 env 로 받아
+#   파드 안 셸에서만 CREATE SUBSCRIPTION 에 넣는다(명령 인자·로그에 남기지 않는다).
+# - wal_level=logical: 승격 뒤 온프레로 되돌리는 후속(복귀)의 출발점이 될 수 있게 둔다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: onprem-pg
+  namespace: echo-data-onprem
+  labels: { app: onprem-pg }
+spec:
+  clusterIP: None
+  selector: { app: onprem-pg }
+  ports:
+    - { name: postgres, port: 5432, targetPort: 5432 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: onprem-pg
+  namespace: echo-data-onprem
+spec:
+  serviceName: onprem-pg
+  replicas: 1
+  selector:
+    matchLabels: { app: onprem-pg }
+  template:
+    metadata:
+      labels: { app: onprem-pg }
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:17
+          args: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=4", "-c", "max_wal_senders=4"]
+          ports:
+            - { name: postgres, containerPort: 5432 }
+          env:
+            - { name: POSTGRES_USER, value: demo }
+            - { name: POSTGRES_DB, value: demo }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: onprem-b2-db, key: password } }
+            - name: SRC_REPL_PASSWORD
+              valueFrom: { secretKeyRef: { name: onprem-repl, key: password } }
+            - { name: SRC_HOST, value: "13.124.120.121" }   # 온프레 EIP (terraform aws/onprem-demo output public_ip)
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "demo", "-d", "demo"] }
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", "demo", "-d", "demo"] }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { memory: "512Mi" }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard-rwo
+        resources: { requests: { storage: 5Gi } }

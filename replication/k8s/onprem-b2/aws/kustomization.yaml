@@ -1,0 +1,10 @@
+# 같은 복제본을 AWS 도쿄 EKS 에도 둔다(인프라 18). 바꾸는 것은 디스크 종류뿐이다.
+# 구독 이름은 온프레 쪽 슬롯과 겹치지 않게 echo_onprem_sub_aws 로 만든다(README).
+resources:
+  - ../base
+patches:
+  - target: { kind: StatefulSet, name: onprem-pg }
+    patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: ebs-csi-default-sc

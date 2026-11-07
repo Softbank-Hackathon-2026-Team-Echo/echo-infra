@@ -6,8 +6,7 @@ set -Eeuo pipefail
 # 뒤에 붙인다: 앞에 두면 gcloud SDK 의 kubectl 이 PATH 의 다른 kubectl(시험용 tests/bin 포함)을 가린다.
 export PATH="$PATH:/opt/homebrew/share/google-cloud-sdk/bin"
 A_CTX="${A_CTX:-echo-dev-eks}"
-# B(서울 DB)는 고객 클러스터(인프라 16 2단계, #100). 관제탑 클러스터 echo-dev-gke 의 echo-data 는 구독을 끊은 옛 B(멈춘 사본)다.
-B_CTX="${B_CTX:-gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke}"
+B_CTX="${B_CTX:-gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke}"  # 인프라 16: 서울 DB B 는 고객 클러스터로 옮겼다(관제탑의 옛 B 는 멈춘 사본)
 NS="${NS:-echo-data}"
 # 각 클러스터 안에서 PgBouncer 가 자기 쪽 Postgres 를 부르는 주소. 백엔드가 이 값이면 "자기 쪽이 쓰기 담당".
 A_LOCAL="${A_LOCAL:-echo-pg}"

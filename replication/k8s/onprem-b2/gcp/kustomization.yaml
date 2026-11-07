@@ -1,0 +1,3 @@
+# GCP 서울 고객 클러스터(gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke). 구독 echo_onprem_sub.
+resources:
+  - ../base
