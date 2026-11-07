@@ -3,3 +3,10 @@ project_id = "<gcp-project-id>"
 
 # 쓰지 않을 때 VM 을 멈춘다(디스크는 남김).
 # vm_running = false
+
+# AI #27: 실제 고객 이미지 SBOM/CVE baseline을 읽을 때만 지정한다.
+# customer_image_repository = {
+#   project    = "team-echo-final"
+#   location   = "asia-northeast3"
+#   repository = "echo"
+# }
