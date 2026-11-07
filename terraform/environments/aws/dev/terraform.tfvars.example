@@ -18,3 +18,8 @@ budget_notification_emails = ["<팀 메일>"]
 
 # 선택. GCP 루트 출력값 cutover_service_account_unique_id (컷오버 Job GSA 의 숫자 ID). 비우면 cutover 역할을 만들지 않는다
 # cutover_google_service_account_id = "<uniqueId>"
+
+# 선택. 인프라 17 진입점 c (AWS 서울). 순서는 specs/infra-17-second-provider-entrypoint.md 7절 — 토큰 SSM 파라미터를 먼저 넣는다
+# entrypoint_c_enabled   = true
+# entrypoint_c_upstreams = { aws = "<닻 ALB DNS>:80", gcp = "<ingress-nginx-entry-c EXTERNAL-IP>:80" }
+# entrypoint_c_sync_from = "http://<GCP 출력 entrypoint_ip>:8080"
