@@ -1,0 +1,35 @@
+# 도쿄 A Postgres 로 들어오는 5432 를 정해진 곳만(PgBouncer-DB 분리, replication/k8s/pool/README.md 5단계).
+# 왜: 컷오버는 PgBouncer PAUSE 로 쓰기를 멈춘다. DB 에 직접 붙은 연결은 PAUSE 로 멈추지 않아 정지 창에 쓰기가 샐 수 있다
+#     → 쓰기 경로를 PgBouncer 하나로 만든다.
+# kustomization.yaml 에 아직 넣지 않았다: 풀 계층으로 옮긴 뒤(4단계) 마지막에 넣는다. 먼저 넣으면 옮기는 중 접속이 막힌다.
+#
+# ⚠ 이 클러스터(EKS)는 지금 NetworkPolicy 를 집행하지 않는다(aws-node enable-network-policy=false, 11/7 확인).
+#   집행하려면 VPC CNI 애드온 설정 enableNetworkPolicy: "true"(network policy agent) 가 먼저다 — Terraform eks 애드온 변경, aws-node 재시작.
+#   그 전에는 apply 해도 막히지 않는다(정책은 남지만 효과 없음).
+#
+# 허용(전부 5432):
+#  - echo-pool 네임스페이스(새 PgBouncer)
+#  - echo-data 의 옛 PgBouncer(app=echo-pgbouncer) — 옮기는 동안만. 옛 Deployment 를 지운 뒤 이 항목을 뺀다
+#  - 공개 서브넷 10.50.0.0/24·10.50.1.0/24 = NLB(echo-pg-external, ip 대상) 의 사설 주소.
+#    NLB 는 출발지를 바꿔 보낸다(클라이언트 IP 보존 꺼짐) → 서울 B 구독(repl_user), 관제탑 데이터 확인(echo_monitor)이 이 주소로 보인다.
+#    누가 NLB 에 닿는지는 NLB 의 loadBalancerSourceRanges(GCP NAT /32) 가 막는다. 파드는 사설 /19 라 여기 들지 않는다
+# 막히지 않는 것: kubectl exec 로 파드 안에서 부르는 psql(컷오버 스크립트, 로컬 소켓) — 네트워크를 타지 않는다.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: echo-pg-ingress
+  namespace: echo-data
+spec:
+  podSelector:
+    matchLabels: { app: echo-pg }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: echo-pool }
+        - podSelector:
+            matchLabels: { app: echo-pgbouncer }
+        - ipBlock: { cidr: 10.50.0.0/24 }
+        - ipBlock: { cidr: 10.50.1.0/24 }
+      ports:
+        - { protocol: TCP, port: 5432 }

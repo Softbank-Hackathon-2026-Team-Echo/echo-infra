@@ -1,0 +1,13 @@
+# 생성 파일 — 고치지 말고 manifests/ 나 values.env 를 고친 뒤 render.sh 를 돌린다.
+# A(도쿄 EKS) 풀 계층: access entry 의 쿠버네티스 그룹 echo-cutover 와 echo-pool Role 을 잇는다(eks-binding.yaml 과 같은 그룹).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: echo-cutover-eks
+  namespace: echo-pool
+  labels: { app.kubernetes.io/part-of: echo-cutover }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: echo-cutover }
+subjects:
+  - kind: Group
+    name: echo-cutover
+    apiGroup: rbac.authorization.k8s.io

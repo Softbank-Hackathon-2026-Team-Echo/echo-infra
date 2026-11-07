@@ -1,0 +1,108 @@
+# 풀 계층 PgBouncer — 앱과 DB 사이. DB 주소를 직접 모르고 표지판 db-writer.echo-data(ClusterIP, 바뀌지 않음)만 본다.
+# 쓰기 담당 전환 = 표지판 뒤(selector ↔ EndpointSlice)만 바꾼다(PAUSE → 표지판 → RECONNECT → RESUME). 파드 안 ini 를 sed 로 고치지 않는다.
+#
+# DB(echo-data)와 끊은 것:
+#  - 인증: auth_query(DB 함수 pgbouncer_user_lookup·역할 pgbouncer_auth) 대신 자기 Secret 의 auth_file.
+#    app_rw 는 SCRAM 검증자를 그대로 넣는다 → SCRAM pass-through 로 A·B 어느 쪽에도 로그인(두 DB 검증자가 같아야 함, sync-role-verifiers.sh).
+#  - 관리 콘솔: 관리 계정 pgbouncer_admin 은 DB 역할이 아니라 이 userlist 에만 있다. PAUSE/RESUME 은 같은 파드의 admin 사이드카에서 보낸다
+#    (지금은 DB 파드 env 의 PGB_AUTH_PASSWORD 로 보낸다 — 그 결합을 없앤다).
+#  - 비밀: echo-pg-secret(DB 관리자 비밀번호 포함)을 참조하지 않는다. echo-pgbouncer-secret 만(secret.example.yaml).
+#
+# replicas 1: 보여 줄 것은 PgBouncer 가용성이 아니라 DB 정합성이다. 2개면 PAUSE 를 파드마다 보내야 하고 하나라도 빠지면 정지 중 쓰기가 샌다.
+# ini 는 바뀌지 않으므로(주소는 Service 에 있음) 재시작해도 늘 현재 쓰기 담당으로 붙는다 → ConfigMap 을 고치는 persist_backend 가 필요 없다.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: echo-pgbouncer-ini
+  namespace: echo-pool
+data:
+  pgbouncer.ini: |
+    [databases]
+    app = host=db-writer.echo-data.svc.cluster.local port=5432 dbname=app
+
+    [pgbouncer]
+    listen_addr = 0.0.0.0
+    listen_port = 6432
+    auth_type = scram-sha-256
+    auth_file = /etc/pgbouncer-secret/userlist.txt
+    admin_users = pgbouncer_admin
+    pool_mode = transaction
+    max_client_conn = 500
+    default_pool_size = 25
+    max_prepared_statements = 0
+    # 쓰기 담당이 다른 클라우드(인터넷 LB)일 수 있어 서버 쪽은 늘 TLS
+    server_tls_sslmode = require
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-pgbouncer
+  namespace: echo-pool
+  labels: { app: echo-pgbouncer }
+spec:
+  type: ClusterIP
+  selector: { app: echo-pgbouncer }
+  ports:
+    - name: pgbouncer
+      port: 6432
+      targetPort: 6432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-pgbouncer
+  namespace: echo-pool
+  labels: { app: echo-pgbouncer }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: echo-pgbouncer }
+  template:
+    metadata:
+      labels: { app: echo-pgbouncer }
+    spec:
+      initContainers:
+        # 이미지 진입 스크립트가 설정 디렉터리에 쓰므로 읽기 전용 ConfigMap 대신 emptyDir 에 복사한다(echo-data 쪽과 같은 방식)
+        - name: copy-ini
+          image: busybox:1.37
+          command: ["sh", "-c", "cp /seed/pgbouncer.ini /etc/pgbouncer/pgbouncer.ini"]
+          volumeMounts:
+            - { name: seed, mountPath: /seed }
+            - { name: conf, mountPath: /etc/pgbouncer }
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:v1.26.1-p0   # echo-data 쪽과 같은 버전. TODO: digest 고정
+          ports:
+            - { name: pgbouncer, containerPort: 6432 }
+          volumeMounts:
+            - { name: conf, mountPath: /etc/pgbouncer }
+            - { name: secret, mountPath: /etc/pgbouncer-secret, readOnly: true }
+          readinessProbe:
+            tcpSocket: { port: 6432 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { memory: "128Mi" }
+        # 관리 콘솔(PAUSE·RESUME·RECONNECT·SHOW) 전용. pgbouncer 이미지에 psql 이 없다.
+        # 컷오버 스크립트: kubectl exec -n echo-pool deploy/echo-pgbouncer -c admin -- psql -h 127.0.0.1 -p 6432 -U pgbouncer_admin -d pgbouncer -tAc "PAUSE app;"
+        - name: admin
+          image: postgres:17-alpine   # TODO: digest 고정
+          command: ["sh", "-c", "trap 'exit 0' TERM; while :; do sleep 3600 & wait $!; done"]
+          env:
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: echo-pgbouncer-secret, key: ADMIN_PASSWORD } }
+          resources:
+            requests: { cpu: "5m", memory: "16Mi" }
+            limits: { memory: "64Mi" }
+      volumes:
+        - name: seed
+          configMap: { name: echo-pgbouncer-ini }
+        - name: conf
+          emptyDir: {}
+        - name: secret
+          secret:
+            secretName: echo-pgbouncer-secret
+            items:
+              - { key: userlist.txt, path: userlist.txt }
