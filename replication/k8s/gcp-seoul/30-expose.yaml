@@ -1,6 +1,6 @@
 # B Postgres 를 도쿄(A)에서 구독할 수 있게 밖으로 낸다 (역방향 복제 B→A, SPEC infra-8).
 # 공개 L4 LB 지만 AWS NAT(18.180.171.76, A Postgres 가 나가는 주소)만 받는다. 전송은 TLS.
-# 적용: kubectl --context gke_team-echo-final_asia-northeast3-a_echo-dev-gke apply -f replication/k8s/gcp-seoul/30-expose.yaml → EXTERNAL-IP 를 A 의 역방향 연결 문자열에 쓴다.
+# 적용: kubectl --context gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke apply -f replication/k8s/gcp-seoul/30-expose.yaml → EXTERNAL-IP 를 A 의 역방향 연결 문자열에 쓴다.
 apiVersion: v1
 kind: Service
 metadata:

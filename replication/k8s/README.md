@@ -23,7 +23,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 
 ```bash
 export PATH="/opt/homebrew/share/google-cloud-sdk/bin:$PATH"
-A=echo-dev-eks; B=gke_team-echo-final_asia-northeast3-a_echo-dev-gke; cd replication/k8s
+A=echo-dev-eks; B=gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke; cd replication/k8s
 
 # 0~1) A 전체 (Postgres TLS · PgBouncer emptyDir · NLB). Secret 두 개를 먼저 손으로(aws-tokyo/README.md · 40-tls.md)
 kubectl --context $A diff -k aws-tokyo    # 바뀌는 것 확인(빈 출력 = 이미 같음)
