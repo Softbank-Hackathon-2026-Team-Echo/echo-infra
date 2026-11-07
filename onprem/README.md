@@ -125,4 +125,6 @@ rm -f k.pem k.pub sealed.txt
 - **고정 진입점(Envoy)에 세 번째 갈래로 붙이기는 #13 몫이다.** Envoy 는 지금 `{서비스}.echoport.uk` Host 를 그대로 넘기는데, 온프레는 터널(Cloudflare)을 거쳐야 닿는다. Envoy 업스트림을 `demo-onprem-…echoport.uk:443` 으로 두면 TLS(SNI)와 Host 바꾸기(`host_rewrite_literal`)가 필요하다. 그대로 `*.echoport.uk` 를 보내면 와일드카드 레코드가 Envoy 자신을 가리켜 고리가 생긴다. 온프레 Ingress 가 고정 Host 도 받게 하는 방법도 있다.
 - echo-was 의 실제 온프레 실행기(배포 = Ingress·디플로이먼트 적용 + DNS 한 줄)는 #3 몫이다. 지금 앱은 이 스크립트가 직접 올렸다.
 - 실제 사무실 온프레라면 이 구성 그대로 공인 IP 없이 동작한다. 시연 기기가 EC2 인 것은 비용·편의 때문이고, EC2 의 공인 IP 는 나가는 길(NAT 대신)로만 쓴다. 이 IP 는 EIP 로 고정한다 — 진입점 9090 remote write 방화벽이 이 IP/32 만 허용하기 때문이다(`terraform output public_ip`, 멈췄다 켜도 그대로).
-- DB 는 기기 디스크(local-path) 한 곳에만 있다. 백업·복제는 #7·#12·#14 몫이다.
+- DB 사본: 11/7부터 온프레 PG 를 GCP 서울 고객 GKE·AWS 도쿄 EKS 의 전용 복제본이 논리 복제로 구독한다(인프라 18, SPEC `specs/infra-18-onprem-replication.md`, 매니페스트 `replication/k8s/onprem-b2/`). 시점 복구 백업은 #14 몫이다.
+- **복제 출발점 준비는 `install.sh` 밖이다.** 기기에서 `sudo bash onprem/replication-source.sh` 를 한 번 돌린다(TLS Secret·복제 계정 `repl_onprem`·발행 `echo_onprem_pub`·pg_hba·`ssl=on`·`max_slot_wal_keep_size=2GB`·5432 ServiceLB, PG 재시작 1회). 이 때문에 "들어오는 포트 0" 의 예외로 5432 가 두 NAT `/32` 에만 열린다(보안 그룹은 Terraform `replication_source_cidrs`).
+- 커널 CVE-2026-98432: 기기 커널은 11/5 수정판(`7.0.0-1017-aws`). 5432 개방 전 추가 방어로 `onprem/hosts/cve-2026-98432-nft.sh`(IPv4 옵션 패킷 drop, systemd 로 재부팅 유지)를 넣었다.

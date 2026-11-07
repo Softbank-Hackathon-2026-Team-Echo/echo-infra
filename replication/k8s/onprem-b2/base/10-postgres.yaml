@@ -46,7 +46,8 @@ spec:
               valueFrom: { secretKeyRef: { name: onprem-b2-db, key: password } }
             - name: SRC_REPL_PASSWORD
               valueFrom: { secretKeyRef: { name: onprem-repl, key: password } }
-            - { name: SRC_HOST, value: "13.124.120.121" }   # 온프레 EIP (terraform aws/onprem-demo output public_ip)
+            - name: SRC_HOST       # 온프레 EIP(terraform aws/onprem-demo output public_ip). 공개 저장소라 Secret 에 둔다
+              valueFrom: { secretKeyRef: { name: onprem-repl, key: host } }
           volumeMounts:
             - { name: data, mountPath: /var/lib/postgresql/data }
           readinessProbe:
