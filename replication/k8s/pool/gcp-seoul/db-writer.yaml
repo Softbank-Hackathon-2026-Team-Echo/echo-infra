@@ -1,0 +1,12 @@
+# 서울(고객 GKE echo-dev-customer-gke) 풀 계층의 "지금 쓰기 담당 DB" 표지판.
+# 평소(A 가 쓰기 담당): 도쿄 A NLB 의 DNS 이름 — __A_HOST__ 는 aws-tokyo/30-expose.yaml 의 EXTERNAL-IP(NLB DNS). ../README.md 적용 명령이 채운다
+# 컷오버 뒤(B 가 쓰기 담당): 같은 클러스터의 B → echo-pg.echo-data.svc.cluster.local
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-writer
+  namespace: echo-pool
+  labels: { app.kubernetes.io/part-of: echo-pool, echo/writer-of: app }
+spec:
+  type: ExternalName
+  externalName: __A_HOST__

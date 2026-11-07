@@ -1,0 +1,7 @@
+# 풀 계층(PgBouncer) 네임스페이스. DB(echo-data)와 따로 둔다 — 배포·롤백·비밀·권한 단위를 DB 와 나눈다.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: echo-pool
+  labels:
+    app.kubernetes.io/part-of: echo-pool

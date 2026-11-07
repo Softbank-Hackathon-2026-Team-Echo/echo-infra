@@ -1,0 +1,7 @@
+# 도쿄(EKS) 풀 계층: kubectl --context <EKS> apply -k replication/k8s/pool/aws-tokyo
+# 먼저 Secret echo-pgbouncer-secret 을 손으로(../base/secret.example.yaml). 적용 순서는 ../README.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+  - db-writer.yaml
