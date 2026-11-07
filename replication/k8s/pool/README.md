@@ -1,6 +1,6 @@
 # 풀 계층 — PgBouncer 를 DB 와 떼어 낸다
 
-- 상태: **매니페스트만. 운영에 적용하지 않았다**(11/7). 적용은 시연 뒤, 리허설과 함께(아래 "옮기는 순서")
+- 상태: **매니페스트 + 로컬 시험 통과(11/7). 운영에 적용하지 않았다**. 적용은 시연 뒤, 리허설과 함께(아래 "옮기는 순서")
 - 작성: 이도현 · 근거: 노션 "플랫폼 · PgBouncer · DB 결합 구조 — 현재 상태와 분리안 (11/7)", 목표 그림 `echoport-architecture-target.drawio`
 
 ## 왜
@@ -24,6 +24,21 @@
  DB 끼리: 도쿄 A ══ 논리 복제 ══▶ 서울 B   (그대로)
 ```
 
+## 로컬 시험 (`tests/pool-test.sh`)
+
+k3s 한 대에 이 폴더와 `../aws-tokyo/10-postgres.yaml`·`40-networkpolicy.yaml` 을 그대로 적용한다(A = `echo-data`, B = `echo-data-b`, 풀 = `echo-pool`). 운영에 닿지 않는다.
+
+| 시험 | 11/7 결과 (2회) |
+|---|---|
+| 인증: `auth_file` + SCRAM pass-through 로 A 에 쓰기(DB 함수·`pgbouncer_auth` 없이) | 통과 |
+| DNS: ExternalName 변경이 파드에 보이기까지 | **5.1 · 6.0초**(k3s CoreDNS) |
+| 전환 A→B(0.1초마다 쓰기 중): PAUSE → 따라잡기 → `db-writer`=B → RECONNECT → RESUME | 쓰기 정지 **5.6 · 8.3초**, 받은 쓰기 84 · 82건 **누락 0**, PAUSE 뒤 A 쓰기 0, 앱 실패 0 |
+| 재시작: PgBouncer 파드 삭제 뒤에도 B 로 | 통과(A 에 안 들어감) |
+| NetworkPolicy: 앱 네임스페이스 → DB 직접 접속 | 막힘. `echo-pool` → DB 는 됨, `kubectl exec` psql 은 그대로 |
+
+- 쓰기 정지의 대부분은 **DNS 반영**(CoreDNS `cache 30` + kubernetes 플러그인 TTL 5초)이다. 운영 GKE(kube-dns)는 더 길 수 있어 1단계에서 잰다
+- B 의 `app_rw` 검증자가 A 와 다르면 전환 뒤 로그인이 실패한다(첫 실행에서 확인) → 전환 전 `sync-role-verifiers.sh --check` 필수
+
 ## 파일
 
 | 파일 | 내용 |
@@ -33,6 +48,7 @@
 | `base/secret.example.yaml` | `echo-pgbouncer-secret` 만드는 법(손으로, 값은 저장소에 없음) |
 | `aws-tokyo/db-writer.yaml` | 도쿄 표지판. 평소 `echo-pg.echo-data.svc.cluster.local`(A) |
 | `gcp-seoul/db-writer.yaml` | 서울(고객 GKE) 표지판. 평소 `__A_HOST__`(A NLB DNS) |
+| `tests/pool-test.sh` | 로컬 k3s 통합 시험(위 절) |
 | `migrate/echo-data-pgbouncer-alias.yaml` | 앱 주소를 안 바꾸고 넘기는 별칭(`echo-data/echo-pgbouncer` → `echo-pool/echo-pgbouncer`) |
 | `../aws-tokyo/40-networkpolicy.yaml` · `../gcp-seoul/40-networkpolicy.yaml` | DB 5432 허용 목록(마지막 단계에 적용) |
 
