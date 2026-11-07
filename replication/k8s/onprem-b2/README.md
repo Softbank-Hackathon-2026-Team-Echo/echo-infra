@@ -65,6 +65,7 @@ EOF2
 - 온프레 앱에 쓰기 3건 → B2 반영 확인 0.53초(kubectl 왕복 포함)
 - 발행 쪽 `pg_stat_replication`: `echo_onprem_sub` streaming, replay_lag 약 5ms, 슬롯 밀림 0 bytes
 - AWS 복제본 추가 뒤 쓰기 2건: 온프레·GCP·AWS 모두 10행, replay_lag GCP 약 5ms·AWS 약 36ms, 두 슬롯 밀림 0 bytes
+- 복제 시험(11/7 16:39 KST): 온프레 앱에 쓰기 20건(전부 201, 0.34초) → 온프레·GCP·AWS 모두 31행, 마지막 id 31, 전체 행 md5 `a8c04f366caaf6347969c24b528a7a9a` 세 곳 일치. replay_lag GCP 약 6ms·AWS 약 35ms, 두 슬롯 밀림 0 bytes
 
 ## 주의
 
