@@ -23,7 +23,7 @@ data "aws_ssm_parameter" "ubuntu" {
   name = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
 }
 
-# ---------- 네트워크: 들어오는 규칙 없음 ----------
+# ---------- 네트워크: 들어오는 규칙은 복제용 5432(/32) 하나만 ----------
 resource "aws_security_group" "host" {
   name        = "${local.name}-host"
   description = "onprem demo host: no inbound, all outbound (SSM, Cloudflare Tunnel, image pulls)"
@@ -32,6 +32,22 @@ resource "aws_security_group" "host" {
   tags = {
     Name = "${local.name}-host"
   }
+}
+
+# 인프라 18: GCP 서울 B2 가 온프레 PG 를 논리 복제로 구독한다. 들어오는 포트 0 원칙의 유일한 예외.
+# - 출발지는 GKE Cloud NAT 고정 IP /32 만(replication_source_cidrs, 기본 빈 목록 = 규칙 없음).
+# - 접속은 TLS 필수(pg_hba: 복제 계정 hostnossl reject), scram. 계정은 REPLICATION + pg_read_all_data 만.
+# - 열기 전 선행: 커널 CVE-2026-98432 완화(nft 로 IPv4 옵션 패킷 drop, 11/7 적용). 보안 그룹은 출발지 위조 패킷을 막지 못한다.
+# security group description 은 바꾸면 재생성되므로 그대로 둔다.
+resource "aws_vpc_security_group_ingress_rule" "pg_replication" {
+  for_each = toset(var.replication_source_cidrs)
+
+  security_group_id = aws_security_group.host.id
+  description       = "PostgreSQL logical replication from GKE NAT (infra-18, TLS only)"
+  ip_protocol       = "tcp"
+  from_port         = 5432
+  to_port           = 5432
+  cidr_ipv4         = each.value
 }
 
 resource "aws_vpc_security_group_egress_rule" "all" {
