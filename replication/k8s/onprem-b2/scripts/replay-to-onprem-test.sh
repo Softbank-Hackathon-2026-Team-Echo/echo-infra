@@ -21,34 +21,42 @@ EOF
 }
 journal_off() { entry "curl -s -o /dev/null -X POST '127.0.0.1:9901/runtime_modify?journal.enabled=0'" && echo "[정리] 진입점 a 기록 끔"; }
 
+if [[ -n ${RESUME_T0:-} ]]; then
+  # 1~5 단계가 끝난 뒤 멈췄을 때 이어서: RESUME_T0=<UNIX 초> RESUME_KEYS=k1,k2,…
+  T0=$RESUME_T0; IFS=, read -r -a KEYS <<<"${RESUME_KEYS:?RESUME_KEYS 가 필요하다}"; N=${#KEYS[@]}
+  in=$(printf "'%s'," "${KEYS[@]}"); in=${in%,}
+  b1=$(bcount); g1=$(gq "select count(*) from demo.seq_write")
+  echo "== 이어서: since=$T0, 시험 키 $N 건, 온프레 사본 $g1 행, 서울 B $b1 행"
+else
 echo "== 1 진입점 a 기록 켜기"
-trap journal_off EXIT   # 켜기 전에 건다: 어느 단계에서 멈춰도 기록은 꺼진다
-entry "curl -s -o /dev/null -X POST '127.0.0.1:9901/runtime_modify?journal.enabled=100'; curl -s 127.0.0.1:9901/runtime | python3 -c 'import json,sys; print(\"journal.enabled =\", json.load(sys.stdin)[\"entries\"][\"journal.enabled\"][\"final_value\"])'"
-T0=$(date +%s); sleep 1
-
-echo "== 2 온프레 사본 구독 끄기 (GCP 안 보임)"
-gq "ALTER SUBSCRIPTION echo_gcp_onprem_sub DISABLE" >/dev/null
-b0=$(bcount); echo "서울 B 시작 $b0 행"
-
-echo "== 3 메인 주소로 쓰기 ${N}건 (멱등 키)"
-KEYS=()
-for i in $(seq 1 "$N"); do
-  k="replay-onprem-$(date +%s)-$i-$RANDOM"; KEYS+=("$k")
-  c=$(curl -s -o /dev/null -w '%{http_code}' -m 10 -X POST -H 'Content-Type: application/json' -H "Idempotency-Key: $k" "$MAIN/api/writes" -d '{}')
-  echo "  $k → $c"
-done
-
-echo "== 4 서울 B 반영 대기"
-for _ in $(seq 1 30); do b1=$(bcount); [[ $b1 -ge $((b0 + N)) ]] && break; sleep 1; done
-in=$(printf "'%s'," "${KEYS[@]}"); in=${in%,}
-bk=$(kubectl --context "$GCP_CTX" -n echo-data exec -i echo-pg-0 -c postgres -- psql -X -U postgres -d app -tA -c "select count(*) from demo.seq_write where request_id in ($in)")
-echo "서울 B $b0 → $b1 행, 시험 키 $bk/$N 건"
-
-echo "== 5 온프레 앱을 사본으로 전환"
-CONFIRM=yes "$DIR/gcp-to-onprem.sh" failover
-g1=$(gq "select count(*) from demo.seq_write"); k1=$(gq "select count(*) from demo.seq_write where request_id in ($in)")
-echo "온프레 사본 $g1 행, 시험 키 $k1/$N 건 (빠진 쓰기 = $((N - k1))건)"
-
+  trap journal_off EXIT   # 켜기 전에 건다: 어느 단계에서 멈춰도 기록은 꺼진다
+  entry "curl -s -o /dev/null -X POST '127.0.0.1:9901/runtime_modify?journal.enabled=100'; curl -s 127.0.0.1:9901/runtime | python3 -c 'import json,sys; print(\"journal.enabled =\", json.load(sys.stdin)[\"entries\"][\"journal.enabled\"][\"final_value\"])'"
+  T0=$(date +%s); sleep 1
+  
+  echo "== 2 온프레 사본 구독 끄기 (GCP 안 보임)"
+  gq "ALTER SUBSCRIPTION echo_gcp_onprem_sub DISABLE" >/dev/null
+  b0=$(bcount); echo "서울 B 시작 $b0 행"
+  
+  echo "== 3 메인 주소로 쓰기 ${N}건 (멱등 키)"
+  KEYS=()
+  for i in $(seq 1 "$N"); do
+    k="replay-onprem-$(date +%s)-$i-$RANDOM"; KEYS+=("$k")
+    c=$(curl -s -o /dev/null -w '%{http_code}' -m 10 -X POST -H 'Content-Type: application/json' -H "Idempotency-Key: $k" "$MAIN/api/writes" -d '{}')
+    echo "  $k → $c"
+  done
+  
+  echo "== 4 서울 B 반영 대기"
+  for _ in $(seq 1 30); do b1=$(bcount); [[ $b1 -ge $((b0 + N)) ]] && break; sleep 1; done
+  in=$(printf "'%s'," "${KEYS[@]}"); in=${in%,}
+  bk=$(kubectl --context "$GCP_CTX" -n echo-data exec -i echo-pg-0 -c postgres -- psql -X -U postgres -d app -tA -c "select count(*) from demo.seq_write where request_id in ($in)")
+  echo "서울 B $b0 → $b1 행, 시험 키 $bk/$N 건"
+  
+  echo "== 5 온프레 앱을 사본으로 전환"
+  CONFIRM=yes "$DIR/gcp-to-onprem.sh" failover
+  g1=$(gq "select count(*) from demo.seq_write"); k1=$(gq "select count(*) from demo.seq_write where request_id in ($in)")
+  echo "온프레 사본 $g1 행, 시험 키 $k1/$N 건 (빠진 쓰기 = $((N - k1))건)"
+  
+fi
 echo "== 6 재생 (진입점 a 안에서, 보낼 곳 = 온프레 주소, since=$T0)"
 for run in 1 2; do
   echo "  [$run 회차]"

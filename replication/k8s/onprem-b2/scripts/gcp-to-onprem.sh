@@ -44,7 +44,7 @@ echo "온프레 앱이 gcpcopy 로 전환됨"
 EOF
     t1=$(date +%s.%N)
     echo "전환 걸린 시간: $(printf '%.1f' "$(echo "$t1-$t0" | bc -l)")s"
-    curl -s -m 8 "https://$APP_HOST/api/writes/summary" | head -c 200; echo
+    { curl -s -m 8 "https://$APP_HOST/api/writes/summary" || true; } | head -c 200 || true; echo
     curl -s -m 8 -o /dev/null -w "쓰기 1건 %{http_code}\n" -X POST -H 'Content-Type: application/json' "https://$APP_HOST/api/writes" -d '{}'
     ;;
   back)
