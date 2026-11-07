@@ -31,7 +31,13 @@ local_of() { [[ $1 == A ]] && echo "$A_LOCAL" || echo "$B_LOCAL"; }
 # 풀 방식 = 표지판이 있고 옛 PgBouncer(echo-data/echo-pgbouncer Deployment)가 없을 때. 새 풀을 옆에 띄운 동안(pool/README.md 3단계)은
 # 앱이 아직 옛 PgBouncer 를 쓰므로 옛 방식으로 PAUSE·repoint 해야 한다 — 옛 Deployment 를 지우는 4단계에서 풀 방식이 된다.
 # POOL_FORCE=1 은 설치 중 pool-point.sh 로 표지판만 맞출 때(쓰기 담당은 바꾸지 않음).
-pool_mode() { local ctx; ctx=$(ctx_of "$1")
+#  window_prep 이 정해 둔 값(POOL_PIN_A·B = 1|0)이 있으면 kubectl 을 부르지 않는다(쓰기 정지 창 안 호출 줄이기, #133).
+POOL_PIN_A="" POOL_PIN_B=""
+pool_mode() { local ctx pin; [[ $1 == A ]] && pin=$POOL_PIN_A || pin=$POOL_PIN_B
+  # return 에 값을 꼭 준다: 인자 없는 return 은 trap 핸들러(guard_stop 의 RESUME) 안에서 "trap 직전 명령"의 종료 코드를
+  # 돌려줘, 옛 방식 쪽을 풀 방식으로 잘못 보고 RESUME 이 실패했다(tests/run.sh 10-2 에서 잡음).
+  if [[ -n $pin ]]; then [[ $pin == 1 ]] && return 0; return 1; fi
+  ctx=$(ctx_of "$1")
   kubectl --context "$ctx" -n "$NS" get svc "$WRITER_SVC" -o name >/dev/null 2>&1 || return 1
   [[ ${POOL_FORCE:-} == 1 ]] && return 0
   ! kubectl --context "$ctx" -n "$NS" get deploy echo-pgbouncer -o name >/dev/null 2>&1; }
@@ -61,7 +67,21 @@ pgb() { local side=$1; local cmd=$2; local ctx; ctx=$(ctx_of "$side")
 # 옛 방식: pgbouncer ini 의 백엔드 host 를 바꾸고 RELOAD.
 # 풀 방식: 표지판 뒤를 바꾸고 — 상대 쪽: EndpointSlice 먼저 → selector 빼기 / 자기 쪽: selector 먼저 → EndpointSlice 지우기(뒤가 비는 순간이 없게) —
 #          반영을 기다린 뒤 RECONNECT(옛 DB 로 열려 있던 서버 연결을 닫는다). 부르는 쪽이 PAUSE 중이어야 한다.
-repoint() { local side=$1; local host=$2; local ctx ips addr; ctx=$(ctx_of "$side")
+repoint() { repoints "$1" "$2"; }
+# 여러 쪽을 한 번에: repoints <A|B> <host> [<A|B> <host> …]
+# 표지판을 모두 바꾼 뒤 반영 대기(WRITER_SETTLE)는 한 번만 하고 풀 방식인 쪽마다 RECONNECT 한다(#133: 쪽마다 기다리면 정지 창이 그만큼 길다).
+repoints() { local pooled="" s
+  while (($#)); do
+    repoint_set "$1" "$2"
+    pool_mode "$1" && pooled+=" $1"
+    shift 2
+  done
+  [[ -n $pooled ]] || return 0
+  sleep "$WRITER_SETTLE"; lap "표지판 반영 대기 ${WRITER_SETTLE}s"
+  for s in $pooled; do pgb "$s" "RECONNECT app;" >/dev/null; done
+}
+# 한 쪽의 쓰기 담당 주소만 바꾼다(반영 대기·RECONNECT 없음). repoints 가 부른다.
+repoint_set() { local side=$1; local host=$2; local ctx ips addr; ctx=$(ctx_of "$side")
   if pool_mode "$side"; then
     if [[ $host == "$(local_of "$side")" ]]; then
       kubectl --context "$ctx" -n "$NS" patch svc "$WRITER_SVC" --type merge -p '{"spec":{"selector":{"app":"echo-pg"}}}' >/dev/null
@@ -89,14 +109,35 @@ YAML
       kubectl --context "$ctx" -n "$NS" delete endpointslice --ignore-not-found \
         -l "kubernetes.io/service-name=$WRITER_SVC,endpointslice.kubernetes.io/managed-by!=echo-cutover" >/dev/null
     fi
-    sleep "$WRITER_SETTLE"
-    pgb "$side" "RECONNECT app;" >/dev/null
   else
     kubectl --context "$ctx" -n "$NS" exec -i deploy/echo-pgbouncer -- sh -c \
       'sed -i "s/^app = host=[^ ]*/app = host=$0/" /etc/pgbouncer/pgbouncer.ini && grep "^app = " /etc/pgbouncer/pgbouncer.ini' "$host" >/dev/null
     pgb "$side" "RELOAD;" >/dev/null
-  fi; }
+  fi
+  lap "$side 쓰기 담당 주소 → $host"; }
 now() { date +%s.%N; }
+
+# ── 쓰기 정지 창 (#133) ──────────────────────────────────────────────────────────────────────────
+# 창 안에서는 kubectl 호출 하나하나가 그대로 정지 시간이다. 창에 들어가기 전에 창 안에서 바뀌지 않는 것을 정해 둔다.
+#  - pool_mode: 쪽마다 한 번만 본다(전에는 pgb·repoint 마다 kubectl 2회씩, 창 안에서 A 8 + B 8 회)
+#  - A(EKS) 인증: Job 은 kubeconfig 에 exec(aws eks get-token)를 두지 않고 토큰 파일(A_TOKEN_FILE)을 쓴다(cutover-entry.sh).
+#    여기서 새로 받아 두면 창 안 kubectl 이 호출마다 aws CLI 를 띄우지 않는다. 토큰은 15분 유효하고 창은 그보다 훨씬 짧다.
+# window_prep <A|B>... : 부르는 쪽(cutover·rollback = A B, promote = B). 실패하면 창에 들어가기 전이라 바뀐 것 없음.
+window_prep() { local s v
+  for s in "$@"; do [[ $s == A ]] && a_token_refresh; done
+  for s in "$@"; do
+    if pool_mode "$s"; then v=1; else v=0; fi
+    if [[ $s == A ]]; then POOL_PIN_A=$v; else POOL_PIN_B=$v; fi
+  done
+  echo "[창 준비] 풀 방식 A=${POOL_PIN_A:--} B=${POOL_PIN_B:--}${A_TOKEN_FILE:+, A 토큰 미리 받음}"
+}
+a_token_refresh() { [[ -n ${A_TOKEN_FILE:-} ]] || return 0
+  aws eks get-token --cluster-name "$EKS_CLUSTER" --region "$AWS_REGION" --output json | jq -er .status.token > "$A_TOKEN_FILE.new"
+  mv -f "$A_TOKEN_FILE.new" "$A_TOKEN_FILE"; }
+# 창 안 단계별 시각: lap "<무엇을 끝냈나>" → " [정지 +  1.23s] …" (WINDOW_T0 = PAUSE 직전 시각, 없으면 찍지 않음)
+WINDOW_T0=""
+lap() { [[ -n $WINDOW_T0 ]] || return 0
+  printf ' [정지 +%6.2fs] %s\n' "$(echo "$(now) - $WINDOW_T0" | bc -l)" "$1"; }
 
 # ── 컷오버·롤백 결과 표 (인프라 7.2, echo-infra#57) ───────────────────────────────────────────────
 # cutover.sh·rollback.sh 가 RESUME 뒤 새 primary 에 결과 한 줄을 쓴다. echo-was 는 데이터 확인 단계와 같은
@@ -170,8 +211,11 @@ record_run() {
   v=$(pg "$to" -c "SELECT count(*), CASE WHEN count(*) = 0 THEN 0 ELSE (max(n) - min(n) + 1) - count(DISTINCT n) END, count(*) - count(DISTINCT n), COALESCE(max(n), 0) FROM demo.seq_write;" 2>/dev/null) \
     || { echo " [결과 표] 장부 대조 실패 — 기록하지 않음(컷오버·롤백 자체는 끝났다)"; return 0; }
   IFS='|' read -r total missing dup maxn <<<"$v"
-  id=$(pg "$to" -c "INSERT INTO echo_ops.cutover_runs (kind, from_side, to_side, paused_at, resumed_at, write_pause_ms, drain_ms, catchup_ms, switch_ms, rows_total, missing_rows, duplicate_rows, max_n, plan_id, mode, rpo_estimate_ms) VALUES ('$kind', '$from', '$to', to_timestamp($t0), to_timestamp($t1), round(($t1 - $t0) * 1000), round(($tp - $t0) * 1000), round(($tc - $tp) * 1000), round(($t1 - $tc) * 1000), $total, $missing, $dup, $maxn, $plan_sql, '$mode', $rpo) RETURNING id;" 2>/dev/null | head -1) \
+  # head -1 로 자르지 않는다: psql 이 RETURNING 행 뒤에 명령 태그(INSERT 0 1)를 더 쓰다가 head 가 먼저 닫으면 pipefail 로
+  # 실패처럼 보인다(11/7 롤백: 행은 들어갔는데 "기록 실패"를 찍음, #133). -q 로 태그를 끄고 첫 줄만 쓴다.
+  id=$(pg "$to" -q -c "INSERT INTO echo_ops.cutover_runs (kind, from_side, to_side, paused_at, resumed_at, write_pause_ms, drain_ms, catchup_ms, switch_ms, rows_total, missing_rows, duplicate_rows, max_n, plan_id, mode, rpo_estimate_ms) VALUES ('$kind', '$from', '$to', to_timestamp($t0), to_timestamp($t1), round(($t1 - $t0) * 1000), round(($tp - $t0) * 1000), round(($tc - $tp) * 1000), round(($t1 - $tc) * 1000), $total, $missing, $dup, $maxn, $plan_sql, '$mode', $rpo) RETURNING id;" 2>/dev/null) \
     || { echo " [결과 표] 기록 실패 — scripts/ops-table.sh 로 표를 만든 뒤 다시 하면 된다(컷오버·롤백 자체는 끝났다)"; return 0; }
+  id=${id%%$'\n'*}
   printf ' [결과 표] %s 에 기록: %s (장부 %s건, 누락 %s, 중복 %s) id=%s\n' "$to" "$kind" "$total" "$missing" "$dup" "$id"
 }
 

@@ -62,7 +62,14 @@ a_context() {
     --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text 2>/dev/null) || return 1
   read -r AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN <<<"$creds"
   export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
-  aws eks update-kubeconfig --name "$EKS_CLUSTER" --region "$AWS_REGION" --alias "$A_CTX" >/dev/null 2>&1 || return 1
+  aws eks update-kubeconfig --name "$EKS_CLUSTER" --region "$AWS_REGION" --alias "$A_CTX" --user-alias "$A_CTX" >/dev/null 2>&1 || return 1
+  # exec(aws eks get-token) 대신 토큰 파일(#133): exec 면 kubectl 호출마다 aws CLI 가 떠서 A 호출 하나가 약 0.5초 더 걸린다.
+  # 토큰은 15분 유효하다. 쓰기 정지 창 직전에 common.sh window_prep 이 다시 받는다. 값은 파일에만 둔다(umask 077, 로그에 안 찍음).
+  A_TOKEN_FILE=/tmp/a-token
+  aws eks get-token --cluster-name "$EKS_CLUSTER" --region "$AWS_REGION" --output json | jq -er .status.token > "$A_TOKEN_FILE" || return 1
+  kubectl config unset "users.${A_CTX}.exec" >/dev/null || return 1
+  kubectl config set "users.${A_CTX}.tokenFile" "$A_TOKEN_FILE" >/dev/null || return 1
+  export A_TOKEN_FILE
   kubectl config use-context "$B_CTX" >/dev/null
 }
 if a_context; then echo "[진입] A($A_CTX) 컨텍스트 준비"; a_ok=1
