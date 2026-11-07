@@ -294,8 +294,10 @@ resource "google_compute_instance" "entry_secondary" {
 #   평소엔 주(a)로만 보내고, a 헬스체크가 실패하면 보조(b)로 넘긴다. echo-was 의 가중치·판정·지표가 a 만 보기 때문에
 #   평소 트래픽을 a 로 모아야 숫자가 맞는다. 11/6 측정: Cloudflare A 레코드 두 개(헬스체크 없음)로는 b 정지 동안 75초간 126건 중 15건 실패.
 #   Cloudflare *.echoport.uk 는 이 LB IP 하나를 가리킨다. var.entrypoint_lb_enabled = false 면 아무것도 만들지 않는다.
+# 11/8: 보조 b 를 뺐다(이중화 불필요, VM 하나만). LB 는 Cloudflare 가 가리키는 IP 라 남기고 백엔드는 a 하나다.
+#   그래서 LB 는 보조 존이 없어도 만든다(entrypoint_secondary_zones = [] 이면 장애 조치 백엔드만 빠진다).
 locals {
-  entry_lb_enabled = var.entrypoint_lb_enabled && length(var.entrypoint_secondary_zones) > 0
+  entry_lb_enabled = var.entrypoint_lb_enabled
 }
 
 resource "google_compute_instance_group" "entry_primary" {
