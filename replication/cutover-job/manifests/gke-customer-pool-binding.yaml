@@ -1,0 +1,12 @@
+# B(서울 고객 클러스터 echo-dev-customer-gke) 풀 계층: 컷오버 Job 의 GSA(User)와 echo-pool Role 을 잇는다(gke-customer-binding.yaml 과 같은 신원).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: echo-cutover-gke-customer
+  namespace: echo-pool
+  labels: { app.kubernetes.io/part-of: echo-cutover }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: echo-cutover }
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: __CUTOVER_GSA__

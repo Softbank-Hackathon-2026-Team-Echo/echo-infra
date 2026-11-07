@@ -1,0 +1,15 @@
+# 생성 파일 — 고치지 말고 manifests/ 나 values.env 를 고친 뒤 render.sh 를 돌린다.
+# B(서울 DB)가 고객 클러스터 echo-dev-customer-gke 에 있을 때(인프라 16 2단계): 컷오버 Job 은 관제탑 클러스터 echo-ops 에서 돌고
+# 이 클러스터에는 KSA 가 아니라 GSA(Google 신원, Workload Identity)로 붙는다 → echo-data Role 을 User 로 잇는다.
+# echo-data-rbac.yaml 뒤에 적용한다. GSA 의 프로젝트 역할은 container.clusterViewer(주소 읽기) 하나.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: echo-cutover-gke-customer
+  namespace: echo-data
+  labels: { app.kubernetes.io/part-of: echo-cutover }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: echo-cutover }
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: echo-dev-cutover@team-echo-final.iam.gserviceaccount.com

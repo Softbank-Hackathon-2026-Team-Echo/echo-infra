@@ -1,0 +1,33 @@
+# 서울 B Postgres(고객 GKE echo-dev-customer-gke)로 들어오는 5432 를 정해진 곳만(PgBouncer-DB 분리, replication/k8s/pool/README.md 5단계).
+# 왜: 컷오버의 PAUSE 를 우회하는 직접 접속을 막아, 쓰기 경로를 PgBouncer 하나로 만든다.
+# 이 클러스터는 Dataplane V2 라 정책이 바로 집행된다. 풀 계층으로 옮긴 뒤(4단계) 마지막에 적용한다.
+#
+# 허용(전부 5432):
+#  - echo-pool 네임스페이스(새 PgBouncer)
+#  - echo-data 의 옛 PgBouncer(app=echo-pgbouncer) — 옮기는 동안만. 옛 Deployment 를 지운 뒤 이 항목을 뺀다
+#  - 18.180.171.76/32 = AWS NAT. 도쿄 A 의 역방향 구독(echo_sub_rev)·컷오버 뒤 도쿄 PgBouncer 가 외부 LB(echo-pg-external)로 들어온다
+#  - 10.61.0.0/16·10.60.0.0/20 = 관제탑 클러스터 파드·노드. echo-was 데이터 확인이 내부 LB(echo-pg-internal)로 들어온다
+#  - 10.63.0.0/20 = 이 클러스터 노드 서브넷. 두 LB 는 externalTrafficPolicy Cluster 라 다른 노드를 거치면 출발지가 노드 IP 로 바뀐다.
+#    echo-pg-external·echo-pg-internal 을 externalTrafficPolicy: Local 로 바꾸면(출발지 보존) 이 항목을 뺄 수 있다
+# 적용 전 확인: 두 LB 의 실제 출발지가 위 범위인지 pg_stat_activity.client_addr 로 본다(README "확인").
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: echo-pg-ingress
+  namespace: echo-data
+spec:
+  podSelector:
+    matchLabels: { app: echo-pg }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: echo-pool }
+        - podSelector:
+            matchLabels: { app: echo-pgbouncer }
+        - ipBlock: { cidr: 18.180.171.76/32 }
+        - ipBlock: { cidr: 10.61.0.0/16 }
+        - ipBlock: { cidr: 10.60.0.0/20 }
+        - ipBlock: { cidr: 10.63.0.0/20 }
+      ports:
+        - { protocol: TCP, port: 5432 }

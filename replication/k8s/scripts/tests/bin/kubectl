@@ -17,6 +17,29 @@ if [[ $all == *" get configmap echo-pgbouncer-ini "* || $all == *" patch configm
   python -I -c 'import json,sys; sys.stdout.buffer.write(json.loads(sys.argv[1])["data"]["pgbouncer.ini"].encode())' "$p" > "$STATE/cm_$s.ini"
   echo "$s" >> "$STATE/cm.log"; exit 0
 fi
+# 풀 방식(POOL_SIDES 에 든 쪽, 예 "A B"): 표지판 echo-data/db-writer 는 $STATE/dw_sel_{A,B}(selector app 값, 비면 없음)
+# 와 $STATE/dw_host_{A,B}(EndpointSlice db-writer-manual 의 echo/writer-host, 파일이 없으면 슬라이스 없음)로 대신한다.
+# echo-pool 의 admin 사이드카 psql(-d pgbouncer)은 옛 방식처럼 $STATE/pgb.log 에 적고 성공.
+if [[ $all == *" db-writer"* || $all == *" -n echo-pool "* || $all == *" endpointslice "* || $all == *" apply -f - "* || $all == *" get deploy echo-pgbouncer "* ]]; then
+  c=; prev=; for a in "$@"; do [[ $prev == --context ]] && c=$a; prev=$a; done
+  [[ $c == "$A_CTX" ]] && s=A || s=B
+  [[ " ${POOL_SIDES:-} " == *" $s "* ]] || exit 1                          # 이 쪽은 옛 방식: 표지판 없음
+  case $all in
+    *" get svc db-writer -o name "*) echo service/db-writer ;;
+    *" get svc db-writer "*selector.app*) cat "$STATE/dw_sel_$s" 2>/dev/null || true ;;
+    *" patch svc db-writer "*'"selector":null'*) : > "$STATE/dw_sel_$s" ;;
+    *" patch svc db-writer "*'"app":"echo-pg"'*) echo echo-pg > "$STATE/dw_sel_$s" ;;
+    *" get endpointslice db-writer-manual "*) [[ -f $STATE/dw_host_$s ]] || exit 1; cat "$STATE/dw_host_$s" ;;
+    *" delete endpointslice db-writer-manual "*) rm -f "$STATE/dw_host_$s" ;;
+    *" delete endpointslice "*"managed-by!=echo-cutover"*) : ;;   # 컨트롤러·미러링 슬라이스 지우기(상태 파일에는 없음)
+    *" delete endpoints db-writer "*) : ;;
+    *" get deploy echo-pgbouncer "*) exit 1 ;;                                  # 풀 방식 쪽은 옛 Deployment 를 지운 뒤(4단계)
+    *" apply -f - "*) sed -n 's/.*echo\/writer-host: "\([^"]*\)".*/\1/p' > "$STATE/dw_host_$s"; echo "$s" >> "$STATE/dw.log" ;;
+    *" exec -i deploy/echo-pgbouncer -c admin "*" -d pgbouncer "*) echo "$s ${*: -1}" >> "$STATE/pgb.log" ;;
+    *) echo "[fake kubectl] 풀 방식에서 모르는 명령: $*" >&2; exit 1 ;;
+  esac
+  exit 0
+fi
 ctx= target=
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -40,7 +63,7 @@ case $target in
   echo-pg-0)
     if [[ " ${cmd[*]} " == *" -d pgbouncer "* ]]; then echo "$side ${cmd[-1]}" >> "$STATE/pgb.log"; exit 0; fi
     for i in "${!cmd[@]}"; do cmd[$i]=${cmd[$i]//sslmode=require/sslmode=disable}; done
-    [[ $side == A ]] && c=echo-t-pg-a || c=echo-t-pg-b
+    [[ $side == A ]] && c=${T_PREFIX:-echo-t}-pg-a || c=${T_PREFIX:-echo-t}-pg-b
     exec docker exec -i -e REPL_PASSWORD=test -e PGB_AUTH_PASSWORD=test "$c" "${cmd[@]}" ;;
   deploy/echo-pgbouncer)
     for i in "${!cmd[@]}"; do cmd[$i]=${cmd[$i]//\/etc\/pgbouncer\/pgbouncer.ini/$STATE/pgb_$side.ini}; done

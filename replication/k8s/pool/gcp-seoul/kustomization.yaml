@@ -1,0 +1,7 @@
+# 서울(고객 GKE echo-dev-customer-gke) 풀 계층: kubectl --context <고객 GKE> apply -k replication/k8s/pool/gcp-seoul
+# 먼저 Secret echo-pgbouncer-secret 을 손으로. 적용 직후 scripts/pool-point.sh B "$A_HOST" 로 표지판에 A NLB IP 를 넣는다(../README.md 3단계).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+  - db-writer.yaml

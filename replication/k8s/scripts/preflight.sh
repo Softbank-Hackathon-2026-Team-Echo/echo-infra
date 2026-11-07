@@ -21,8 +21,9 @@ vb=$(pg B -c "SELECT count(*)||'/'||(COALESCE(max(n),0)-COALESCE(min(n),0)+1-cou
 [ -n "$va" ] && [ "$va" = "$vb" ] && [ "${va#*/}" = "0/0" ]; check "장부 대조 (건수/누락/중복)" $? "A $va · B $vb"
 
 echo "== PgBouncer"
-ba=$(kubectl --context "$A_CTX" -n "$NS" exec deploy/echo-pgbouncer -c pgbouncer -- sh -c "sed -n 's/^app = host=\([^ ]*\).*/\1/p' /etc/pgbouncer/pgbouncer.ini" 2>/dev/null)
-bb=$(kubectl --context "$B_CTX" -n "$NS" exec deploy/echo-pgbouncer -c pgbouncer -- sh -c "sed -n 's/^app = host=\([^ ]*\).*/\1/p' /etc/pgbouncer/pgbouncer.ini" 2>/dev/null)
+# 옛 방식(ini)·풀 방식(표지판 db-writer) 모두 common.sh 가 읽는다
+ba=$(pgb_backend A 2>/dev/null)
+bb=$(pgb_backend B 2>/dev/null)
 [ "$ba" = "echo-pg" ]; check "A 백엔드" $? "$ba"
 [ "$bb" = "$A_NLB" ]; check "B 백엔드 = A NLB" $? "$bb"
 for s in A B; do p=$(pgb $s "SHOW DATABASES;" 2>/dev/null | awk -F'|' '$1=="app"{print $(NF-1)}'); [ "$p" = "0" ]; check "$s PgBouncer paused" $? "paused=${p:-?}"; done

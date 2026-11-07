@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# 시험용 getent: `getent ahostsv4 <이름>` 만 받는다. 풀 방식 repoint 가 상대 주소를 IP 로 풀 때 쓴다(시험 이름은 실제 DNS 에 없다).
+# 이름마다 고정된 가짜 IP 하나를 낸다(EndpointSlice 에 들어갈 값만 확인하면 되므로 실제로 닿을 필요는 없다).
+[[ ${1:-} == ahostsv4 && -n ${2:-} ]] || exit 2
+n=$(printf '%s' "$2" | cksum | awk '{print $1 % 250 + 1}')
+echo "10.99.0.$n    STREAM $2"

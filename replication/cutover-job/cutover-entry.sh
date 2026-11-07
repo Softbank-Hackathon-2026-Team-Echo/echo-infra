@@ -17,16 +17,33 @@ esac
 SA=/var/run/secrets/kubernetes.io/serviceaccount
 umask 077
 
-# B: 이 클러스터. 토큰은 파일 경로로만 넘긴다(kubeconfig 에 값을 적지 않음, 회전돼도 그대로).
+# B: 기본은 이 클러스터(in-cluster SA 토큰). 토큰은 파일 경로로만 넘긴다(kubeconfig 에 값을 적지 않음, 회전돼도 그대로).
+# 이미지에 B_GKE_CLUSTER(projects/<p>/locations/<l>/clusters/<c>)가 있으면 DB(echo-data)가 다른 GKE 클러스터에 있다
+# (인프라 16 고객 클러스터 분리, echo-infra#94) → 이 KSA 에 묶인 GSA 의 액세스 토큰으로 GKE API 에서 주소·CA 를 읽어 그 클러스터를 B 로 쓴다.
+# GSA 권한: 프로젝트 container.clusterViewer(주소 읽기·인증) + 그 클러스터 echo-data 의 RoleBinding(User) 뿐.
+B_SERVER="https://kubernetes.default.svc"; B_CA="${SA}/ca.crt"; B_TOKEN_FILE="${SA}/token"
+if [[ -n ${B_GKE_CLUSTER:-} ]]; then
+  B_CA=/tmp/b-ca.crt; B_TOKEN_FILE=/tmp/b-token
+  curl -fsS --max-time 5 -H 'Metadata-Flavor: Google' \
+    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" | jq -r .access_token > "$B_TOKEN_FILE" \
+    || { echo "[진입] B 클러스터용 Google 토큰을 받지 못했다 — 바뀐 것 없음" >&2; exit 1; }
+  printf 'Authorization: Bearer %s\n' "$(cat "$B_TOKEN_FILE")" > /tmp/b-auth
+  b_info=$(curl -fsS --max-time 10 -H @/tmp/b-auth "https://container.googleapis.com/v1/${B_GKE_CLUSTER}") \
+    || { echo "[진입] B 클러스터($B_GKE_CLUSTER) 정보를 읽지 못했다 — 바뀐 것 없음" >&2; exit 1; }
+  rm -f /tmp/b-auth
+  B_SERVER="https://$(jq -r .endpoint <<<"$b_info")"
+  jq -r .masterAuth.clusterCaCertificate <<<"$b_info" | base64 -d > "$B_CA"
+  echo "[진입] B = 다른 GKE 클러스터 ${B_GKE_CLUSTER##*/}"
+fi
 cat > "$KUBECONFIG" <<EOF
 apiVersion: v1
 kind: Config
 clusters:
   - name: ${B_CTX}
-    cluster: { server: "https://kubernetes.default.svc", certificate-authority: "${SA}/ca.crt" }
+    cluster: { server: "${B_SERVER}", certificate-authority: "${B_CA}" }
 users:
   - name: ${B_CTX}
-    user: { tokenFile: "${SA}/token" }
+    user: { tokenFile: "${B_TOKEN_FILE}" }
 contexts:
   - name: ${B_CTX}
     context: { cluster: "${B_CTX}", user: "${B_CTX}" }

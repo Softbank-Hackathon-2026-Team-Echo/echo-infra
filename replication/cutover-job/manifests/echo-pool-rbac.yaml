@@ -1,0 +1,21 @@
+# 컷오버 Job 신원이 풀 계층 네임스페이스(echo-pool, replication/k8s/pool)에서 할 수 있는 것 — PgBouncer 관리 콘솔(PAUSE·RESUME·RECONNECT)만.
+# 관리 콘솔은 PgBouncer 파드의 admin 사이드카에서 부른다(비밀번호는 사이드카 env) → 이 신원은 secrets 를 읽지 않는다.
+# 받는 쪽(RoleBinding)은 클러스터마다 다르다: eks-binding.yaml(도쿄, 그룹) · gke-customer-binding.yaml(서울 고객 클러스터, GSA).
+# echo-pool 네임스페이스가 먼저 있어야 한다(replication/k8s/pool 3단계 뒤에 적용).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: echo-cutover
+  namespace: echo-pool
+  labels: { app.kubernetes.io/part-of: echo-cutover }
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create, get]
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [echo-pgbouncer]
+    verbs: [get]
