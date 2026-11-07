@@ -1,0 +1,584 @@
+{
+  "at": "2026-11-07T09:18:54.571735+00:00",
+  "scope": "NET-ENVOY1a non-native closeout only",
+  "integrationBase": "b984f5e4e63ba575a1a3cd1f8c50c69282ed1f20",
+  "currentHeadBeforeTaskCommit": "b984f5e4e63ba575a1a3cd1f8c50c69282ed1f20",
+  "commands": [
+    {
+      "argv": [
+        "/Users/jimin/.hermes/cache/scratch/service-routing-independent/was/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-o",
+        "asyncio_default_fixture_loop_scope=function",
+        "entrypoint/weights-api/test_service_routing.py",
+        "entrypoint/journal/test_app.py",
+        "entrypoint/weights-api/test_network_resilience.py",
+        "--junitxml=/Users/jimin/archive/softbank-hackathon-2026/night-1107/network-resilience/evidence/net-envoy1a/focused-regression.xml"
+      ],
+      "exit": 0,
+      "seconds": 42.312475209
+    }
+  ],
+  "focusedRegression": {
+    "cases": 39,
+    "counts": {
+      "pass": 39
+    },
+    "seconds": 41.91399999999999
+  },
+  "baselineNewFailures": 0,
+  "syntaxFiles": 3,
+  "originalAppAstSame": true,
+  "originalNewFilesByteSame": true,
+  "legacyFunctionAstSame": [
+    "render_clusters",
+    "render_routes",
+    "apply_weights",
+    "fallback_chain",
+    "fallback_name"
+  ],
+  "newFilesLint": [
+    {
+      "argv": [
+        "/Users/jimin/.hermes/cache/scratch/service-routing-independent/was/.venv/bin/ruff",
+        "format",
+        "--check",
+        "entrypoint/weights-api/test_network_resilience.py",
+        "entrypoint/weights-api/run_network_fault_fixture.py"
+      ],
+      "exit": 0,
+      "output": "2 files already formatted\n"
+    },
+    {
+      "argv": [
+        "/Users/jimin/.hermes/cache/scratch/service-routing-independent/was/.venv/bin/ruff",
+        "check",
+        "entrypoint/weights-api/test_network_resilience.py",
+        "entrypoint/weights-api/run_network_fault_fixture.py"
+      ],
+      "exit": 0,
+      "output": "All checks passed!\n"
+    }
+  ],
+  "appLint": {
+    "baseline": [
+      {
+        "code": "EXE001",
+        "message": "Shebang is present but file is not executable"
+      },
+      {
+        "code": "I001",
+        "message": "Import block is un-sorted or un-formatted"
+      },
+      {
+        "code": "TRY004",
+        "message": "Prefer `TypeError` exception for invalid type"
+      },
+      {
+        "code": "PLR0124",
+        "message": "Name compared with itself, consider replacing `value != value`"
+      }
+    ],
+    "candidate": [
+      {
+        "code": "EXE001",
+        "message": "Shebang is present but file is not executable"
+      },
+      {
+        "code": "I001",
+        "message": "Import block is un-sorted or un-formatted"
+      },
+      {
+        "code": "TRY004",
+        "message": "Prefer `TypeError` exception for invalid type"
+      },
+      {
+        "code": "PLR0124",
+        "message": "Name compared with itself, consider replacing `value != value`"
+      }
+    ]
+  },
+  "defaultOff": {
+    "READ_FAILOVER_ENABLED": false,
+    "READ_FAILOVER_POLICIES_FILE": ""
+  },
+  "fixtureHistorical": {
+    "totals": {
+      "requests": 548,
+      "errors": 96,
+      "warmupErrors": 59,
+      "otherServiceErrors": 0,
+      "maxLatencyMs": 819.2732920870185,
+      "measuredSeconds": 62.22262595733628,
+      "postSentToOrigins": 4,
+      "duplicatePostTransmissions": 0,
+      "historicalPortsClosed": true,
+      "historicalPortRecords": 48
+    },
+    "cases": [
+      {
+        "case": "reset",
+        "requests": 81,
+        "errors": 14,
+        "warmupErrors": 9,
+        "otherServiceErrors": 0,
+        "maxLatencyMs": 436.1416674219072,
+        "secondsToAlternative": 1.502797792199999,
+        "durationSeconds": 10.462709374725819,
+        "postSentToOrigins": 1,
+        "duplicatePostTransmissions": 0,
+        "controlSnapshotUnchanged": true,
+        "layer": "HTTP fixture, NOT native Envoy"
+      },
+      {
+        "case": "refused",
+        "requests": 96,
+        "errors": 15,
+        "warmupErrors": 10,
+        "otherServiceErrors": 0,
+        "maxLatencyMs": 136.2815829925239,
+        "secondsToAlternative": 1.1221981248818338,
+        "durationSeconds": 10.09564649965614,
+        "postSentToOrigins": 0,
+        "duplicatePostTransmissions": 0,
+        "controlSnapshotUnchanged": true,
+        "layer": "HTTP fixture, NOT native Envoy"
+      },
+      {
+        "case": "blackhole",
+        "requests": 90,
+        "errors": 15,
+        "warmupErrors": 10,
+        "otherServiceErrors": 0,
+        "maxLatencyMs": 507.59025011211634,
+        "secondsToAlternative": 1.7959054159000516,
+        "durationSeconds": 10.312128166668117,
+        "postSentToOrigins": 1,
+        "duplicatePostTransmissions": 0,
+        "controlSnapshotUnchanged": true,
+        "layer": "HTTP fixture, NOT native Envoy"
+      },
+      {
+        "case": "delay",
+        "requests": 90,
+        "errors": 14,
+        "warmupErrors": 10,
+        "otherServiceErrors": 0,
+        "maxLatencyMs": 819.2732920870185,
+        "secondsToAlternative": 2.055048667360097,
+        "durationSeconds": 9.85980754159391,
+        "postSentToOrigins": 1,
+        "duplicatePostTransmissions": 0,
+        "controlSnapshotUnchanged": true,
+        "layer": "HTTP fixture, NOT native Envoy"
+      },
+      {
+        "case": "control-outage",
+        "requests": 46,
+        "errors": 8,
+        "warmupErrors": 8,
+        "otherServiceErrors": 0,
+        "maxLatencyMs": 404.5724170282483,
+        "secondsToAlternative": null,
+        "durationSeconds": 6.401497208978981,
+        "postSentToOrigins": 0,
+        "duplicatePostTransmissions": 0,
+        "controlSnapshotUnchanged": true,
+        "layer": "HTTP fixture, NOT native Envoy"
+      },
+      {
+        "case": "all-dead",
+        "requests": 145,
+        "errors": 30,
+        "warmupErrors": 12,
+        "otherServiceErrors": 0,
+        "maxLatencyMs": 505.60220796614885,
+        "secondsToAlternative": 0.8006908749230206,
+        "durationSeconds": 15.09083716571331,
+        "postSentToOrigins": 1,
+        "duplicatePostTransmissions": 0,
+        "controlSnapshotUnchanged": true,
+        "layer": "HTTP fixture, NOT native Envoy"
+      }
+    ],
+    "rawSha256": {
+      "evidence/socket-faults-v4/reset/requests.jsonl": "7d8cdeaea27467f79651b98d9fffcb5b6f5727dfb6e11a1486682973309abc88",
+      "evidence/socket-faults-v4/refused/requests.jsonl": "7b1f8881d7c5a6c89137796af98e7e817a2951c5d2fdb74fb502e493bff18e04",
+      "evidence/socket-faults-v4/blackhole/requests.jsonl": "c965c24c174f1d389e056cb650f40a5dee3cd91fee0f9a47ebb6cc48045fcdff",
+      "evidence/socket-faults-v4/delay/requests.jsonl": "5b243486dac71b406dbe3060c95cb6a0077559416a2e5052e56a3ba9099efcbc",
+      "evidence/socket-faults-v4/control-outage/requests.jsonl": "f12eda87969aef5b06831fb1eb1d003e095ded82b325fad4d54ed351de8ffe59",
+      "evidence/socket-faults-v4/all-dead/requests.jsonl": "f50979a2fbe3af5ab8b575b78d4d782b43ac11f2cd50d800270318d718044547"
+    }
+  },
+  "historicalJUnit": {
+    "baseline.xml": {
+      "cases": 27,
+      "counts": {
+        "pass": 27
+      },
+      "seconds": 18.864000000000004
+    },
+    "final-regressions.xml": {
+      "cases": 39,
+      "counts": {
+        "pass": 39
+      },
+      "seconds": 42.412000000000006
+    },
+    "was-regression.xml": {
+      "cases": 2829,
+      "counts": {
+        "pass": 1568,
+        "skip": 1261
+      },
+      "seconds": 94.83799999999994
+    },
+    "was-serial-paired.xml": {
+      "cases": 2829,
+      "counts": {
+        "skip": 1260,
+        "pass": 1569
+      },
+      "seconds": 18.50200000000007
+    },
+    "finalization/focused-regression.xml": {
+      "cases": 39,
+      "counts": {
+        "pass": 39
+      },
+      "seconds": 47.95799999999999
+    },
+    "socket-faults-v4/junit.xml": {
+      "cases": 6,
+      "counts": {
+        "pass": 6
+      },
+      "seconds": 62.22262595733628
+    }
+  },
+  "historicalRedJUnit": {
+    "red-admin.xml": {
+      "cases": 1,
+      "counts": {
+        "fail": 1
+      },
+      "seconds": 1.046
+    },
+    "red-bounds.xml": {
+      "cases": 1,
+      "counts": {
+        "fail": 1
+      },
+      "seconds": 1.543
+    },
+    "red-freshness.xml": {
+      "cases": 1,
+      "counts": {
+        "fail": 1
+      },
+      "seconds": 1.081
+    },
+    "red-hard-deadline.xml": {
+      "cases": 1,
+      "counts": {
+        "fail": 1
+      },
+      "seconds": 3.052
+    },
+    "red-monitor.xml": {
+      "cases": 1,
+      "counts": {
+        "fail": 1
+      },
+      "seconds": 0.522
+    },
+    "red-reset.xml": {
+      "cases": 1,
+      "counts": {
+        "fail": 1
+      },
+      "seconds": 1.225
+    },
+    "red-warmup.xml": {
+      "cases": 1,
+      "counts": {
+        "fail": 1
+      },
+      "seconds": 1.06
+    }
+  },
+  "independent11": {
+    "reexecutedThisTurn": false,
+    "summary": {
+      "testsRun": 11,
+      "failures": [],
+      "errors": [],
+      "external_network_attempts_blocked": [],
+      "scope": "real WAS serializer + loopback HTTP + real weights Handler + generated xDS JSON; Envoy admin fixture only, no Envoy ACK"
+    }
+  },
+  "currentHistoricalPortReadback": [
+    {
+      "port": 63590,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 63591,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 63592,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 63593,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 63594,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 63595,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 63596,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 63597,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 63931,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 63932,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 63933,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 63934,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 63935,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 63936,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 63937,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 63938,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 64311,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 64312,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 64313,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 64314,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 64315,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 64316,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 64318,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 64319,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 64671,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 64672,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 64673,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 64674,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 64675,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 64676,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 64677,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 64678,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 65035,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 65036,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 65037,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 65038,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 65039,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 65040,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 65042,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 65043,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 65213,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 65214,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 65215,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 65216,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 65217,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 65218,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 65219,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    },
+    {
+      "port": 65220,
+      "listeningNow": false,
+      "action": "read-only, no process terminated"
+    }
+  ],
+  "sourceSha256": {
+    "entrypoint/weights-api/app.py": "abed1ffaa14fbe73213f2a9bfad3d7727f3e9c7c7abd6adc004c2a3384817ea3",
+    "entrypoint/weights-api/test_network_resilience.py": "b9edd73e8eef676feb1fb1ee0324daf57de77cd52d7998d3eaae150cc61f6a49",
+    "entrypoint/weights-api/run_network_fault_fixture.py": "9897e121efbf323524ef488dbfceb4657427af3eaa816eda7e658477427ad931"
+  },
+  "nativeEnvoy": {
+    "verdict": "PARTIAL_BLOCKED",
+    "reason": "Previously inspected selected colima/default profile is now Stopped. colima-echo is a different socket; no alternate engine selected.",
+    "imagePulls": 0,
+    "containerRuns": 0,
+    "imageId": null,
+    "nativeRequests": 0,
+    "validate": "NOT_RUN",
+    "fileXdsAcceptance": "NOT_RUN"
+  },
+  "durableCommitDuplicates": "UNVERIFIED",
+  "costDeltaUSD": {
+    "monthly": 0,
+    "oneTime": 0
+  }
+}
