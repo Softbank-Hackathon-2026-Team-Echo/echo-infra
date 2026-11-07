@@ -61,7 +61,7 @@ if [[ -n ${FAIL_SQL:-} ]]; then
 fi
 case $target in
   echo-pg-0)
-    if [[ " ${cmd[*]} " == *" -d pgbouncer "* ]]; then echo "$side ${cmd[-1]}" >> "$STATE/pgb.log"; exit 0; fi
+    if [[ " ${cmd[*]} " == *" -d pgbouncer "* ]]; then echo "$side ${cmd[${#cmd[@]}-1]}" >> "$STATE/pgb.log"; exit 0; fi   # ${cmd[-1]} 은 macOS bash 3.2 에 없다
     for i in "${!cmd[@]}"; do cmd[$i]=${cmd[$i]//sslmode=require/sslmode=disable}; done
     [[ $side == A ]] && c=${T_PREFIX:-echo-t}-pg-a || c=${T_PREFIX:-echo-t}-pg-b
     exec docker exec -i -e REPL_PASSWORD=test -e PGB_AUTH_PASSWORD=test "$c" "${cmd[@]}" ;;
