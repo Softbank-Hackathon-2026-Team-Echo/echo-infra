@@ -34,6 +34,17 @@ variable "root_volume_gb" {
   default     = 20
 }
 
+variable "replication_source_cidrs" {
+  description = "온프레 PG 5432 에 들어올 수 있는 출발지(인프라 18). GKE Cloud NAT 고정 IP /32 만 넣는다. 빈 목록이면 들어오는 규칙 없음"
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for c in var.replication_source_cidrs : endswith(c, "/32")])
+    error_message = "replication_source_cidrs 는 /32 만 허용한다."
+  }
+}
+
 variable "ssm_parameter_prefix" {
   description = "기기가 읽을 수 있는 SSM 파라미터 경로(터널 자격 증명). 값은 Terraform 밖에서 넣는다"
   type        = string
