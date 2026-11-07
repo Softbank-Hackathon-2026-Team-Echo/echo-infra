@@ -172,11 +172,49 @@ resource "aws_iam_role" "entry_c" {
   assume_role_policy = data.aws_iam_policy_document.entry_c_assume[0].json
 }
 
-resource "aws_iam_role_policy_attachment" "entry_c_ssm_core" {
-  count      = local.entry_c_enabled ? 1 : 0
-  provider   = aws.seoul
-  role       = aws_iam_role.entry_c[0].name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+# SSM 에이전트 통신(Session Manager·Run Command)에 필요한 동작만 인라인으로 준다.
+# 관리형 정책 AmazonSSMManagedInstanceCore 는 ssm:GetParameter(s) 가 Resource "*" 라 다른 파라미터까지 읽을 수 있어 쓰지 않는다(PR #97 검증 지적 1).
+# 아래 동작들은 리소스 단위 제한을 지원하지 않거나(ssmmessages·ec2messages) 파라미터 값을 읽지 않는다(UpdateInstanceInformation).
+data "aws_iam_policy_document" "entry_c_ssm_agent" {
+  count = local.entry_c_enabled ? 1 : 0
+
+  statement {
+    sid       = "SsmAgentRegister"
+    actions   = ["ssm:UpdateInstanceInformation"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "SsmSessionChannels"
+    actions = [
+      "ssmmessages:CreateControlChannel",
+      "ssmmessages:CreateDataChannel",
+      "ssmmessages:OpenControlChannel",
+      "ssmmessages:OpenDataChannel",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "SsmAgentMessages"
+    actions = [
+      "ec2messages:AcknowledgeMessage",
+      "ec2messages:DeleteMessage",
+      "ec2messages:FailMessage",
+      "ec2messages:GetEndpoint",
+      "ec2messages:GetMessages",
+      "ec2messages:SendReply",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "entry_c_ssm_agent" {
+  count    = local.entry_c_enabled ? 1 : 0
+  provider = aws.seoul
+  name     = "entry-c-ssm-agent"
+  role     = aws_iam_role.entry_c[0].id
+  policy   = data.aws_iam_policy_document.entry_c_ssm_agent[0].json
 }
 
 data "aws_iam_policy_document" "entry_c" {
@@ -260,7 +298,7 @@ resource "aws_instance" "entry_c" {
     aws_s3_object.entry_c_files,
     aws_s3_object.entry_c_settings,
     aws_iam_role_policy.entry_c,
-    aws_iam_role_policy_attachment.entry_c_ssm_core,
+    aws_iam_role_policy.entry_c_ssm_agent,
   ]
 }
 
