@@ -4,7 +4,7 @@
 #   down: 쓰기 LOAD_SEC 초(기본 10) 뒤 끊기     up: 되돌리기(nft 표 삭제, 앱 1)
 # 기기를 멈추지 않으므로 되돌리기가 확실하다. CVE 완화 표(cve_2026_98432)는 건드리지 않는다.
 source "$(dirname "$0")/common.sh"
-GKE_NAT="${GKE_NAT:-34.64.211.218}"
+GKE_NAT="${GKE_NAT:?GKE Cloud NAT 출발 IP 를 GKE_NAT 로 주세요 (예: gcloud compute routers nats describe 로 확인)}"
 LOAD_SEC="${LOAD_SEC:-10}"
 
 case "${1:-}" in

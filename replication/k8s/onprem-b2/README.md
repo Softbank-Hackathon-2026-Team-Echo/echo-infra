@@ -93,9 +93,9 @@ kubectl --context $C apply -k standby-app
 시험 순서:
 
 ```bash
-scripts/simulate-down.sh down          # 온프레 장애
+GKE_NAT=<GCP_NAT_IP> scripts/simulate-down.sh down   # 온프레 장애 (GKE Cloud NAT 출발 IP)
 CONFIRM=yes scripts/failover.sh        # GKE 로 전환, 잃은 행 수
-scripts/simulate-down.sh up            # 온프레 복구
+GKE_NAT=<GCP_NAT_IP> scripts/simulate-down.sh up     # 온프레 복구
 CONFIRM=yes scripts/rejoin.sh          # 온프레 = 원본, B2 = 복제본으로 되돌리기
 ```
 
@@ -112,7 +112,7 @@ CONFIRM=yes scripts/rejoin.sh          # 온프레 = 원본, B2 = 복제본으�
 
 | 위치 | 설정 (11/7) |
 |---|---|
-| 서울 B (`echo-data/echo-pg`) | 복제 계정 `repl_gcp_onprem`(REPLICATION + pg_read_all_data), `max_slot_wal_keep_size=2GB`(ALTER SYSTEM, 재시작 없음), 외부 LB `echo-pg-external` 허용 IP 에 온프레 EIP `13.124.120.121/32` 추가 |
+| 서울 B (`echo-data/echo-pg`) | 복제 계정 `repl_gcp_onprem`(REPLICATION + pg_read_all_data), `max_slot_wal_keep_size=2GB`(ALTER SYSTEM, 재시작 없음), 외부 LB `echo-pg-external` 허용 IP 에 온프레 EIP `<ONPREM_EIP>/32` 추가 |
 | 온프레 | DB `gcpcopy`(스키마는 서울 B 에서 pg_dump -s), 구독 `echo_gcp_onprem_sub`(TLS), 비밀번호 Secret `echo-demo/gcp-repl`, 앱용 Secret `demo-y6cz3jrc/gcpcopy-env` |
 
 ```bash
