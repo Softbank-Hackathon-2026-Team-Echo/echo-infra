@@ -6,7 +6,7 @@ FROM amazon/aws-cli:2.39.4
 
 ARG KUBECTL_VERSION=v1.36.6
 ARG TARGETARCH=amd64
-RUN dnf install -y --setopt=install_weak_deps=False bc findutils \
+RUN dnf install -y --setopt=install_weak_deps=False bc findutils jq \
  && dnf clean all \
  && curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
  && echo "$(curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256")  /usr/local/bin/kubectl" | sha256sum -c - \
@@ -14,7 +14,10 @@ RUN dnf install -y --setopt=install_weak_deps=False bc findutils \
 
 # 비밀이 아닌 고정값. 주소(A_HOST·B_HOST)는 실행할 때 Service 에서 읽는다(Job 환경 변수는 PLAN_ID·KIND·ALLOW_PROMOTE 만 허용).
 ARG AWS_ROLE_ARN=""
+# B(서울 DB)가 Job 과 다른 GKE 클러스터에 있을 때만: projects/<p>/locations/<l>/clusters/<c> (인프라 16). 비우면 in-cluster.
+ARG B_GKE_CLUSTER=""
 ENV AWS_ROLE_ARN=${AWS_ROLE_ARN} \
+    B_GKE_CLUSTER=${B_GKE_CLUSTER} \
     AWS_REGION=ap-northeast-1 \
     EKS_CLUSTER=echo-dev-eks \
     A_CTX=aws-tokyo \
