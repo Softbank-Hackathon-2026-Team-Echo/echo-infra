@@ -1,0 +1,57 @@
+# echo-was 가 만든 앱 네임스페이스(app.kubernetes.io/managed-by=echo-was)의 파드가 노드 권한을 얻지 못하게 막는다.
+#
+# 왜: echo-executor 의 echo-app-deployer 는 Deployment 의 파드 모양을 제한하지 않는다. k3s 는 Pod Security 설정 없이
+#     설치돼(install.sh) 기본값이 privileged 다. 그래서 실행기 토큰이 새면 privileged·hostNetwork·hostPath(/) 파드로
+#     노드 root → k3s 관리자 kubeconfig·DB·터널 비밀값·EC2 역할(IMDS)까지 이어진다. 11/8 서버 dry-run 으로 확인.
+# 무엇: Pod Security baseline 의 핵심만 VAP 로 건다 — host 네임스페이스·hostPath·privileged·hostPort·허용 밖 capability 금지.
+#       k3s 재시작이 필요 없고 echo-was 쪽 수정도 없다. kube-system(svclb·coredns) 등 다른 네임스페이스는 대상이 아니다.
+# 되돌리기: kubectl delete -f 이 파일 (이미 떠 있는 파드에는 영향 없음 — 새로 만들거나 바꿀 때만 검사한다).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: echo-app-pod-guard
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  variables:
+    - name: containers
+      expression: "object.spec.containers + (has(object.spec.initContainers) ? object.spec.initContainers : [])"
+  validations:
+    - expression: >-
+        !(has(object.spec.hostNetwork) && object.spec.hostNetwork) &&
+        !(has(object.spec.hostPID) && object.spec.hostPID) &&
+        !(has(object.spec.hostIPC) && object.spec.hostIPC)
+      message: "echo-was 앱 네임스페이스에서는 hostNetwork·hostPID·hostIPC 를 쓸 수 없다"
+    - expression: "!has(object.spec.volumes) || object.spec.volumes.all(v, !has(v.hostPath))"
+      message: "echo-was 앱 네임스페이스에서는 hostPath 볼륨을 쓸 수 없다"
+    - expression: >-
+        variables.containers.all(c, !has(c.securityContext) ||
+          !has(c.securityContext.privileged) || !c.securityContext.privileged)
+      message: "echo-was 앱 네임스페이스에서는 privileged 컨테이너를 쓸 수 없다"
+    - expression: >-
+        variables.containers.all(c, !has(c.ports) ||
+          c.ports.all(p, !has(p.hostPort) || p.hostPort == 0))
+      message: "echo-was 앱 네임스페이스에서는 hostPort 를 쓸 수 없다"
+    - expression: >-
+        variables.containers.all(c, !has(c.securityContext) || !has(c.securityContext.capabilities) ||
+          !has(c.securityContext.capabilities.add) ||
+          c.securityContext.capabilities.add.all(x, x in ['AUDIT_WRITE', 'CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'FSETID',
+            'KILL', 'MKNOD', 'NET_BIND_SERVICE', 'SETFCAP', 'SETGID', 'SETPCAP', 'SETUID', 'SYS_CHROOT']))
+      message: "echo-was 앱 네임스페이스에서는 Pod Security baseline 밖의 capability 를 추가할 수 없다"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: echo-app-pod-guard
+spec:
+  policyName: echo-app-pod-guard
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        app.kubernetes.io/managed-by: echo-was

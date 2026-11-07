@@ -29,15 +29,17 @@ case $s in
   REPLICA) echo "[확인] A 에 닿지 않는다 → B 를 쓰기 담당으로 올린다" ;;
 esac
 last=$(pg B -c "SELECT EXTRACT(EPOCH FROM COALESCE((SELECT last_msg_receipt_time FROM pg_stat_subscription WHERE subname = 'echo_sub' AND last_msg_receipt_time IS NOT NULL LIMIT 1), (SELECT max(wrote_at) FROM demo.seq_write)));")
+window_prep B   # 풀 방식 판정을 창 밖에서 한 번(#133). A 에는 닿지 않으니 B 만
 GUARD_PHASE=paused
-t0=$(now)
-pgb B "PAUSE app;" >/dev/null
+t0=$(now); WINDOW_T0=$t0
+pgb B "PAUSE app;" >/dev/null; lap "B PAUSE"
 tp=$(now)
 pg B -c "SELECT setval(pg_get_serial_sequence('demo.seq_write','id'), (SELECT COALESCE(max(id),0) FROM demo.seq_write)+1000);" >/dev/null
+lap "B 시퀀스 +1000"
 GUARD_PHASE=switching   # 여기부터 실패하면 RESUME 하지 않는다
-pg B -c "ALTER SUBSCRIPTION echo_sub DISABLE;" >/dev/null
+pg B -c "ALTER SUBSCRIPTION echo_sub DISABLE;" >/dev/null; lap "B 정방향 구독 끔"
 repoint B "$B_LOCAL"
-pgb B "RESUME app;" >/dev/null
+pgb B "RESUME app;" >/dev/null; lap "B RESUME"
 t1=$(now)
 GUARD_PHASE=done; trap - ERR
 rpo=NULL; [[ -n $last ]] && rpo=$(printf '%.0f' "$(echo "($t0 - $last) * 1000" | bc -l)")

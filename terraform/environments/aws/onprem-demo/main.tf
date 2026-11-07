@@ -91,6 +91,30 @@ resource "aws_iam_role_policy" "params" {
   policy = data.aws_iam_policy_document.params.json
 }
 
+# AmazonSSMManagedInstanceCore 의 ssm:GetParameter(s) 는 Resource "*" 라 이 기기 역할이 계정의 다른 파라미터
+# (진입점 가중치 토큰 /echo/dev/entry-c/weights-token 등)까지 읽는다(11/8 simulate-principal-policy 로 allowed 확인).
+# SSM 에이전트(Run Command·Session Manager)는 그대로 두려고 관리형 정책은 유지하고, 이 기기 접두사 밖의 파라미터 읽기만 명시 거부한다.
+# 명시 거부는 어떤 허용보다 우선한다. 진입점 c 처럼 관리형 정책을 인라인으로 바꾸는 것은 시연 뒤에 한다.
+data "aws_iam_policy_document" "deny_foreign_params" {
+  statement {
+    sid    = "DenyParamsOutsideOnpremPrefix"
+    effect = "Deny"
+    actions = [
+      "ssm:GetParameter",
+      "ssm:GetParameters",
+      "ssm:GetParametersByPath",
+      "ssm:GetParameterHistory",
+    ]
+    not_resources = ["arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_parameter_prefix}/*"]
+  }
+}
+
+resource "aws_iam_role_policy" "deny_foreign_params" {
+  name   = "deny-foreign-params"
+  role   = aws_iam_role.host.id
+  policy = data.aws_iam_policy_document.deny_foreign_params.json
+}
+
 resource "aws_iam_instance_profile" "host" {
   name = "${local.name}-host"
   role = aws_iam_role.host.name
@@ -110,8 +134,11 @@ resource "aws_instance" "host" {
     cpu_credits = "standard"
   }
 
+  # hop limit 1: k3s 파드(한 홉 안쪽)는 IMDS 응답을 받지 못해 이 기기 역할을 빌리지 못한다. 기기 자신(SSM 에이전트·k3s)은 그대로 쓴다.
+  # EKS 노드(aws/dev/eks.tf)와 같은 설정. 기본값은 AMI/계정 설정을 따라 11/8 기준 2 였다.
   metadata_options {
-    http_tokens = "required"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
   }
 
   root_block_device {

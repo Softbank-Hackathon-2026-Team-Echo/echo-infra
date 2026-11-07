@@ -18,27 +18,33 @@ if ! a_reachable; then
 fi
 ops_table_ensure   # 결과 표가 양쪽에 있는지(쓰기 정지 창 밖에서). 인프라 7.2
 preflight CUTOVER A B   # 이미 B 가 쓰기 담당이거나 이 계획 기록이 있으면 여기서 끝(인프라 12.1)
+window_prep A B         # 풀 방식 판정·A 토큰을 창 밖에서 한 번(#133)
 GUARD_PHASE=paused
-t0=$(now)
-pgb A "PAUSE app;" >/dev/null; pgb B "PAUSE app;" >/dev/null
+t0=$(now); WINDOW_T0=$t0
+pgb A "PAUSE app;" >/dev/null; lap "A PAUSE"
+pgb B "PAUSE app;" >/dev/null; lap "B PAUSE"
 tp=$(now)
 # B 가 A 를 따라잡음: A 의 replay_lsn == current_wal_lsn (최대 10초)
 for i in $(seq 1 100); do
   behind=$(pg A -c "SELECT COALESCE(MIN(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn)), -1) FROM pg_stat_replication WHERE application_name='echo_sub';")
   [[ "$behind" == "0" ]] && break; sleep 0.1
 done
-tc=$(now)
+tc=$(now); lap "따라잡기(확인 ${i}회)"
 maxA=$(pg A -c "SELECT COALESCE(max(n),0) FROM demo.seq_write;"); maxB=$(pg B -c "SELECT COALESCE(max(n),0) FROM demo.seq_write;")
 [[ "$maxA" == "$maxB" ]] || { echo "따라잡기 실패: A max(n)=$maxA B max(n)=$maxB → RESUME 하고 중단"; pgb A "RESUME app;"; pgb B "RESUME app;"; exit 1; }
+lap "장부 대조 A=B max(n)=$maxA"
 pg B -c "SELECT setval(pg_get_serial_sequence('demo.seq_write','id'), (SELECT COALESCE(max(id),0) FROM demo.seq_write)+1000);" >/dev/null
+lap "B 시퀀스 +1000"
 GUARD_PHASE=switching   # 여기부터 실패하면 RESUME 하지 않는다(옛 쪽에 쓰면 B 로 복제되지 않는다)
-pg B -c "ALTER SUBSCRIPTION echo_sub DISABLE;" >/dev/null
+pg B -c "ALTER SUBSCRIPTION echo_sub DISABLE;" >/dev/null; lap "B 정방향 구독 끔"
 # 역방향 B→A: A 가 B 를 구독 (copy_data=false: 지금까지의 행은 이미 A 에 있다)
 kubectl --context "$A_CTX" -n "$NS" exec -i echo-pg-0 -c postgres -- sh -c \
   'echo "CREATE SUBSCRIPTION echo_sub_rev CONNECTION :'"'"'conn'"'"' PUBLICATION echo_pub WITH (copy_data = false);" | \
    psql -X -v ON_ERROR_STOP=1 -U postgres -d app -v conn="host=$0 port=5432 dbname=app user=repl_user password=$REPL_PASSWORD sslmode=require"' "$B_HOST" >/dev/null
-repoint B "$B_LOCAL"; repoint A "$B_HOST"
-pgb B "RESUME app;" >/dev/null; pgb A "RESUME app;" >/dev/null
+lap "A 역방향 구독 만듦"
+repoints B "$B_LOCAL" A "$B_HOST"   # 두 쪽 표지판을 바꾸고 반영 대기는 한 번
+pgb B "RESUME app;" >/dev/null; lap "B RESUME"
+pgb A "RESUME app;" >/dev/null; lap "A RESUME"
 t1=$(now)
 GUARD_PHASE=done; trap - ERR
 printf '컷오버 완료. max(n)=%s\n 쓰기 정지 시간(PAUSE→RESUME): %.3fs\n   ├ PAUSE 드레인: %.3fs\n   ├ 따라잡기: %.3fs\n   └ 시퀀스·역방향 구독·repoint·RESUME: %.3fs\n' \
