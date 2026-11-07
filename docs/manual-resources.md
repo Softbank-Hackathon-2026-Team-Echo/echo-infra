@@ -66,6 +66,15 @@ curl -sS -X POST "https://api.cloudflare.com/client/v4/zones/<영역 id>/dns_rec
 | Secret `cert-manager/cloudflare-dns-token` | 같음 | 파일 없음(값은 Secret Manager 에서 넘김) | 같은 절의 `gcloud secrets versions access … \| kubectl create secret` |
 | ClusterIssuer `letsencrypt-dns` · Certificate `ingress-nginx/wildcard-gcp-seoul` | 같음 | `cluster-addons/gke/cert-manager/wildcard-gcp-seoul.yaml` | 같은 절의 `kubectl apply -f` |
 | ingress-nginx · EKS 닻 Ingress | GKE / EKS | `cluster-addons/gke/ingress-nginx-values.yaml`, `cluster-addons/eks/anchor-ingress.yaml` | [cluster-addons/README.md](../cluster-addons/README.md) "설치" 절 |
+| 서울 B(Postgres·PgBouncer·외부 LB `34.158.218.66`·내부 LB `echo-pg-internal` `10.63.0.15`) — 인프라 16 2단계(11/7) | GKE **`echo-dev-customer-gke`** ns `echo-data` | `replication/k8s/gcp-seoul/{00,10,20,30,35}` (단 PVC 는 `storageClassName: standard`(pd-standard) 로 바꿔 적용 — SSD 할당량 220/250 유지. 파일은 `standard-rwo` 그대로) | `replication/k8s/README.md` 적용 순서 + 구독은 `subscribe.sh` |
+| 컷오버 Job 의 고객 클러스터 권한 | GKE `echo-dev-customer-gke` ns `echo-data` | `replication/cutover-job/deploy/gcp-seoul-customer` | `kubectl apply -k` |
+
+## GCP IAM·VM 메타데이터를 손으로 바꾼 것 (인프라 16 2단계, 11/7 — Terraform 반영 필요)
+
+| 무엇 | 값 | 왜 손으로 | Terraform 에 넣을 때 |
+|---|---|---|---|
+| 컷오버 GSA `echo-dev-cutover` 프로젝트 역할 | `roles/container.clusterViewer` | 컷오버 Job(관제탑 클러스터)이 고객 클러스터 주소·CA 를 GKE API 로 읽고 인증 | `cutover.tf` 에 `google_project_iam_member` 1개(“프로젝트 역할 없음” 원칙 예외 — 읽기 전용, 클러스터 내 권한은 RBAC 로만) |
+| 진입점 VM a·b startup-script `UPSTREAMS` | `gcp=10.63.0.14:80`(고객 클러스터 ingress-nginx 내부 LB) | 동옥 `terraform.tfvars` 가 M1 에 없어 `-target` apply 시 다른 변수 기본값이 섞임 → `add-metadata` 로 한 줄만 | tfvars `entrypoint_upstreams.gcp = "10.63.0.14:80"` → plan 이 No changes 인지 확인 |
 
 ## 이미 코드에 반영된 것
 

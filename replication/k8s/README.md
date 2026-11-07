@@ -21,6 +21,8 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 
 ## 적용 순서 (사람이, 데스크톱에서 · 인프라 담당 확인 뒤)
 
+> **11/7 인프라 16 2단계부터 B 는 고객 클러스터 `echo-dev-customer-gke` 에 있다**(외부 LB `34.158.218.66`, 관제탑용 내부 LB `35-internal-lb.yaml` = `10.63.0.15`, PVC 는 `standard`(pd-standard) 로 적용). 스크립트를 사람이 돌릴 때는 `B_CTX=gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke` 를 꼭 준다 — `common.sh` 기본값(`echo-dev-gke`)은 구독을 끊은 옛 B(멈춘 사본, 시연 끝까지 보존)다. 컷오버 Job 은 이미지의 `B_GKE_CLUSTER` 로 새 B 를 쓴다(`cutover-job/README.md`).
+
 ```bash
 export PATH="/opt/homebrew/share/google-cloud-sdk/bin:$PATH"
 A=echo-dev-eks; B=gke_team-echo-final_asia-northeast3-a_echo-dev-gke; cd replication/k8s
