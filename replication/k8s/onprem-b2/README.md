@@ -99,6 +99,8 @@ scripts/simulate-down.sh up            # 온프레 복구
 CONFIRM=yes scripts/rejoin.sh          # 온프레 = 원본, B2 = 복제본으로 되돌리기
 ```
 
+무중단 시험 (11/7 17:51 KST, `simulate-down` 없이 온프레는 그대로 두고 B2 만 승격): B2 승격 3.3초, GKE 앱 기동 15.1초, 전체 18.4초. 승격 전 B2 37행·md5 가 AWS B2(증인)와 같았고, GKE 앱 쓰기 201(id 1038, 시퀀스 +1000). `rejoin.sh` 뒤 온프레·GCP·AWS 37행·md5 일치, preflight 20/20. 온프레를 실제로 끊는 시험(`simulate-down`)은 아직 하지 않았다.
+
 - 승격 뒤 B2 에 쓴 행은 `rejoin.sh` 가 버린다(시험용). 온프레로 데이터를 되돌리는 복귀는 범위 밖이다.
 - 손님 주소 전환(온프레 터널 주소를 GKE 로)은 다음 단계다. GKE 에 같은 Cloudflare 터널 연결기를 두면 온프레 연결기가 끊길 때 같은 주소가 GKE 로 간다.
 - 서울 B(`echo-data`)와 같은 클러스터라 모든 명령은 `-n echo-data-onprem` 이다.
