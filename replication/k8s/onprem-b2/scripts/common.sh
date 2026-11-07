@@ -6,7 +6,14 @@ export PATH="$PATH:/opt/homebrew/share/google-cloud-sdk/bin"
 GCP_CTX="${GCP_CTX:-gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke}"
 AWS_CTX="${AWS_CTX:-echo-dev-eks}"
 NS=echo-data-onprem
-SUB=echo_onprem_sub
+# 장애 시 올릴 B2 (TARGET=gcp 기본 | aws). 다른 쪽 B2 는 온프레 마지막 상태 증인이 된다.
+TARGET="${TARGET:-gcp}"
+case $TARGET in
+  gcp) TARGET_CTX=$GCP_CTX WITNESS_CTX=$AWS_CTX SUB=echo_onprem_sub WITNESS=AWS ;;
+  aws) TARGET_CTX=$AWS_CTX WITNESS_CTX=$GCP_CTX SUB=echo_onprem_sub_aws WITNESS=GCP ;;
+  *) echo "TARGET 은 gcp|aws" >&2; exit 2 ;;
+esac
+TLABEL=$(echo "$TARGET" | tr a-z A-Z)
 ONPREM_REGION=ap-northeast-2
 export AWS_PROFILE="${AWS_PROFILE:-echo}"
 
@@ -32,7 +39,7 @@ onprem_sh() {
   [[ $st == Success ]]
 }
 
-# B2 에 psql (ctx 는 GCP_CTX 또는 AWS_CTX)
+# B2 에 psql (ctx 는 TARGET_CTX·WITNESS_CTX 등)
 b2() { local ctx=$1; shift; kubectl --context "$ctx" -n "$NS" exec -i onprem-pg-0 -c postgres --request-timeout=30s -- psql -XAt -v ON_ERROR_STOP=1 -U demo -d demo "$@"; }
 
 # 행 수 · 마지막 id · 전체 행 md5

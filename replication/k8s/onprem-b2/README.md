@@ -99,6 +99,18 @@ GKE_NAT=<GCP_NAT_IP> scripts/simulate-down.sh up     # 온프레 복구
 CONFIRM=yes scripts/rejoin.sh          # 온프레 = 원본, B2 = 복제본으로 되돌리기
 ```
 
+AWS 로도 같은 방식이다(`TARGET=aws`, 증인은 GCP B2). EKS 대기 앱은 같은 매니페스트를 쓰고 환경 이름만 바꾼다:
+
+```bash
+C=echo-dev-eks   # Secret onprem-standby-app 은 위 "처음 한 번" 명령에서 C 만 바꿔 만든다
+kubectl --context $C apply -k standby-app
+kubectl --context $C -n echo-data-onprem set env deploy/demo-app ECHO_ENVIRONMENT=aws
+TARGET=aws CONFIRM=yes scripts/failover.sh
+TARGET=aws CONFIRM=yes scripts/rejoin.sh
+```
+
+AWS 무중단 시험 (11/7 20:00 KST): AWS B2 승격 5.4초, EKS 앱 기동 7.0초, 전체 12.3초. 승격 전 AWS B2 37행·md5 가 GCP B2(증인)와 같았고, EKS 앱이 `environment: aws` 로 38행(빠짐·중복 0), 쓰기 201. `rejoin.sh` 뒤 온프레·AWS·GCP 37행·md5 일치, preflight 20/20.
+
 무중단 시험 (11/7 17:51 KST, `simulate-down` 없이 온프레는 그대로 두고 B2 만 승격): B2 승격 3.3초, GKE 앱 기동 15.1초, 전체 18.4초. 승격 전 B2 37행·md5 가 AWS B2(증인)와 같았고, GKE 앱 쓰기 201(id 1038, 시퀀스 +1000). `rejoin.sh` 뒤 온프레·GCP·AWS 37행·md5 일치, preflight 20/20. 온프레를 실제로 끊는 시험(`simulate-down`)은 아직 하지 않았다.
 
 - 승격 뒤 B2 에 쓴 행은 `rejoin.sh` 가 버린다(시험용). 온프레로 데이터를 되돌리는 복귀는 범위 밖이다.
