@@ -24,7 +24,7 @@ kubectl --context "$TARGET_CTX" -n "$NS" port-forward svc/demo-app "$PORT:80" >/
 trap 'kill $pf 2>/dev/null || true' EXIT
 for _ in $(seq 1 20); do curl -s -o /dev/null "http://127.0.0.1:$PORT/healthz" && break; sleep 0.5; done
 code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 -X POST -H 'Content-Type: application/json' "http://127.0.0.1:$PORT/api/writes" -d '{}' || true)
-echo "GKE 앱 기동 ($(printf '%.1f' "$(echo "$t2-$t1" | bc -l)")s), 쓰기 1건 응답 ${code:-?}"
+echo "$TLABEL 대기 앱 기동 ($(printf '%.1f' "$(echo "$t2-$t1" | bc -l)")s), 쓰기 1건 응답 ${code:-?}"
 
 after=$(b2 "$TARGET_CTX" -c "$SNAP_SQL")
 witness=$(b2 "$WITNESS_CTX" -c "$SNAP_SQL" 2>/dev/null || echo "- - -")
