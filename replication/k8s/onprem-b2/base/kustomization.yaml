@@ -1,0 +1,4 @@
+# 공통 정의. 적용은 gcp/ 또는 aws/ 오버레이로 한다.
+resources:
+  - 00-namespace.yaml
+  - 10-postgres.yaml

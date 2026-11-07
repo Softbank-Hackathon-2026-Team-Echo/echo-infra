@@ -3,11 +3,21 @@
 온프레 PG(`echo-demo/demo-db`, DB `demo`)를 고객 클러스터의 전용 복제본 B2(`echo-data-onprem/onprem-pg`)가 논리 복제로 구독한다.
 온프레 장애 시 B2 를 승격해 GKE 에서 서비스를 다시 켠다. 서울 B(`echo-data`, 도쿄 A 구독)와 이름·네임스페이스·Secret 이 모두 달라 시연 경로에 영향이 없다.
 
+같은 발행을 AWS 도쿄 EKS 의 복제본도 구독한다. 사본이 온프레·GCP·AWS 세 곳에 있다.
+
 ```
 온프레 demo-db (발행 echo_onprem_pub, FOR ALL TABLES)
-  └─ TLS 5432, 보안 그룹은 GKE Cloud NAT /32 만 (terraform aws/onprem-demo replication_source_cidrs)
-       └─ B2 onprem-pg (구독 echo_onprem_sub) — 고객 클러스터 echo-data-onprem
+  └─ TLS 5432, 보안 그룹은 두 NAT /32 만 (terraform aws/onprem-demo replication_source_cidrs)
+       ├─ GCP B2 onprem-pg (구독 echo_onprem_sub)     — 고객 GKE echo-data-onprem, 출발 IP echo-dev-nat
+       └─ AWS   onprem-pg (구독 echo_onprem_sub_aws) — echo-dev-eks echo-data-onprem, 출발 IP 도쿄 NAT echo-dev
 ```
+
+| 위치 | 적용 | 구독 이름 |
+|---|---|---|
+| GCP 고객 클러스터 | `kubectl --context <gke> apply -k gcp` | `echo_onprem_sub` |
+| AWS EKS | `kubectl --context echo-dev-eks apply -k aws` (디스크만 `ebs-csi-default-sc`) | `echo_onprem_sub_aws` |
+
+구독 이름은 온프레 쪽 복제 슬롯 이름이 되므로 위치마다 달라야 한다.
 
 ## 온프레 쪽 (11/7 기기에 적용, 매니페스트 반영은 후속)
 
