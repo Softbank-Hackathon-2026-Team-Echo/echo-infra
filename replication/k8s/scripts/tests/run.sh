@@ -155,6 +155,20 @@ check "종료 코드" 1 $rc
 check "RESUME 2회" 2 "$(grep -c RESUME "$STATE/pgb.log")"
 check "writer_side" A "$(writer)"
 
+echo "== 10-3. 시각 로그(lap)의 bc 가 실패해도 쓰기 정지가 풀리지 않는다(#133 후속): 컷오버 → 롤백 정상, RESUME 은 각 2회"
+# 실패하는 bc 를 PATH 맨 앞에. 고치기 전에는 정지 창 안 lap 마다 서브셸의 ERR trap 이 RESUME 을 보내고 메인은 계속 전환했다.
+mkdir -p "$STATE/badbc"; printf '#!/usr/bin/env bash\nexit 1\n' > "$STATE/badbc/bc"; chmod +x "$STATE/badbc/bc"
+Q3=88888888-0000-4000-8000-000000000003; Q4=88888888-0000-4000-8000-000000000004
+for step in "cutover.sh $Q3 B" "rollback.sh $Q4 A"; do
+  set -- $step
+  : > "$STATE/pgb.log"
+  run env PATH="$STATE/badbc:$PATH" PLAN_ID=$2 "$S/$1"; check "$1 종료 코드" 0 $?
+  check "$1 RESUME 2회(창 끝에서만)" 2 "$(grep -c RESUME "$STATE/pgb.log")"
+  check "$1 마지막 두 줄이 RESUME" 2 "$(tail -2 "$STATE/pgb.log" | grep -c RESUME)"
+  [[ $LAST_OUT == *"?s]"* ]] && ok "$1 시각 대신 ? 로 찍힘" || bad "$1 lap 출력에 ? 없음"
+  check "$1 뒤 writer_side" $3 "$(writer)"
+done
+
 echo "== 11. (준비) P5 롤백으로 A 를 다시 쓰기 담당으로"
 run env PLAN_ID=$P5 "$S/rollback.sh" >/dev/null; check "종료 코드" 0 $?
 check "writer_side" A "$(writer)"
