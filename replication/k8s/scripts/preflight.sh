@@ -48,8 +48,10 @@ set -- $codes
 [ "$2" = "200" ]; check "${APP%%.*}.gcp-seoul /readyz (진입점 VM 에서)" $? "${2:-?}"
 
 echo "== 관측·부하"
-for c in "$A_CTX" "$B_CTX"; do r=$(kubectl --context "$c" -n echo-otel get deploy otel-collector -o jsonpath='{.status.readyReplicas}' 2>/dev/null); [ "${r:-0}" -ge 1 ]; check "OTel 수집기 ${c%%_*}" $? "ready=${r:-0}"; done
-lg=$(kubectl --context "$B_CTX" -n echo-loadgen get deploy loadgen -o jsonpath='{.spec.replicas}' 2>/dev/null)
+# 관제탑 GKE(echo-was·loadgen). 인프라 16 뒤 B_CTX 는 고객 클러스터라 따로 둔다
+OPS_CTX="${OPS_CTX:-gke_team-echo-final_asia-northeast3-a_echo-dev-gke}"
+for c in "$A_CTX" "$B_CTX" "$OPS_CTX"; do r=$(kubectl --context "$c" -n echo-otel get deploy otel-collector -o jsonpath='{.status.readyReplicas}' 2>/dev/null); [ "${r:-0}" -ge 1 ]; check "OTel 수집기 ${c##*_}" $? "ready=${r:-0}"; done
+lg=$(kubectl --context "$OPS_CTX" -n echo-loadgen get deploy loadgen -o jsonpath='{.spec.replicas}' 2>/dev/null)
 echo "  ℹ️  loadgen replicas=${lg:-없음} (시연 직전에만 make loadgen-on)"
 cr=$(pg A -c "SELECT count(*) FROM echo_ops.cutover_runs;" 2>/dev/null)
 [ -n "$cr" ]; check "결과 표 echo_ops.cutover_runs" $? "${cr:-읽기 실패}행"
