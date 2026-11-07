@@ -62,6 +62,7 @@
 | 4 | 고객 앱 재배포: 서비스마다 gcp-seoul 환경에 같은 `commitSha` 배포 요청 → 새 클러스터에 네임스페이스·Deployment·Ingress, `{ns}-env` Secret 은 Secret Manager 참조로 다시 생성 → 환경별 주소 `/readyz` 200(VPC 안) | 지민 | 10분 |
 | 4b | 컷오버 Job 교차 클러스터 권한: 새 클러스터 `echo-data` 에 `echo-cutover` Role + **User `echo-dev-cutover@…` RoleBinding**, 컷오버 GSA 에 endpoint 조회 권한(`container.clusterViewer` 또는 동등), Job 의 B 컨텍스트를 새 클러스터로 | 도현(매니페스트) · 동옥(IAM) | 20분 |
 | 5 | 진입점 업스트림 전환: tfvars `entrypoint_upstreams.gcp = "<새 ingress-nginx 내부 LB IP>:80"` → apply(메타데이터 제자리 갱신) → **b 먼저** `sudo google_metadata_script_runner startup`, `/status` gcp healthy 확인 → a(헬스체크 NLB 가 그동안 b 로 보냄) | 동옥 | 15분 |
+| 5b | 환경별 주소 DNS 전환(11/7 빠뜨려 인프라 16.1 [#127](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-infra/issues/127)로 고침): Cloudflare `*.gcp-seoul.echoport.uk` A 를 새 ingress-nginx 내부 LB IP 로(DNS only, TTL 300). 빠뜨리면 옛 클러스터에 같은 Host 앱이 남아 있어 echo-was 배포 헬스체크·`preflight.sh`·`REPLAY_BASE` 가 **옛 앱에서 200** 을 받는다(새 앱 장애를 못 잡음, 쓰기는 컷오버 대상 밖인 옛 PgBouncer 로). 확인: 관제탑 파드에서 시스템 DNS 로 `/api/info` 의 `hostname` 이 새 클러스터 파드인지, `preflight.sh` 의 "gcp-seoul DNS = 진입점 gcp 업스트림" | 지민 | 5분 |
 | 6 | 검증(7절) | 지민 · 도현 | 20분 |
 | 7 | 예전 네임스페이스 정리: 7절이 다 통과하고 **시연(11/8)이 끝날 때까지 유지**한 뒤 팀 합의로 `echo-dev-gke` 의 `demo-*`·`ingress-nginx`·`cert-manager`·`echo-data`(PVC 포함, 먼저 `pg_dump` 보관)·`echo-otel` 정리. 이후 관제탑 풀 `node_min_count` 2 → 1 검토 | 동옥 · 도현 | 15분 |
 
@@ -94,6 +95,7 @@
 | 2·4 | 환경 `PATCH config` `clusterName: echo-dev-gke` 로 되돌림 → 예전 네임스페이스가 그대로 있어 재배포 불필요(필요하면 같은 commitSha 재배포) | 5분 |
 | 3·3b | `DATA_SYNC_DATABASES` 원래 값 PR · B 는 6절 (a) 였으면 예전 B 에 `subscribe.sh` 재구독, (b) 였으면 새 구독만 DROP | 15~30분 |
 | 5 | tfvars `entrypoint_upstreams.gcp = "10.60.0.8:80"` → apply → b·a 순 startup 재실행 | 10분 |
+| 5b | Cloudflare `*.gcp-seoul.echoport.uk` A 를 `10.60.0.8` 로(레코드 id 는 #127 적용 댓글) | 5분 |
 | 전체 | 예전 네임스페이스·LB(10.60.0.8, <GCP_PG_LB_IP>)를 **7단계 전까지 지우지 않는다** — 위 네 줄만으로 원상 | 30~45분 |
 
 ## 9. 비용 (목표 ≈ $4/일 이하) — 공개 가격 근사, 청구서로 미검증
