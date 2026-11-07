@@ -46,6 +46,17 @@ curl -sS -X POST "https://api.cloudflare.com/client/v4/zones/<영역 id>/dns_rec
 
 **보류 기록(11/4)**: 이 규칙 때문에 Cloudflare → 진입점 구간은 암호화 없는 HTTP 80 이다. 손님 → Cloudflare 구간은 HTTPS 다. 시연에는 영향이 없어 Full (strict) 전환(Envoy 443 + Origin 인증서)은 보류했다. 하게 되면 할 일과 선택지는 [이슈 46](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-infra/issues/46).
 
+### Load Balancing (인프라 17, 2026-11-07 적용)
+
+계정 `Rlawlals031211@gmail.com's Account`(114dc193…) 구독 **기본 Load Balancing $5/월**(엔드포인트 2·검사 지역 1·60초 포함, 저장된 카드). echo-was 토큰에는 LB 권한이 없어 대시보드(로그인 세션)로 만든다. 절차·되돌리기는 [SPEC 인프라 17](../specs/infra-17-second-provider-entrypoint.md) 7·8절.
+
+| 자원 | id | 값 |
+|---|---|---|
+| 모니터 `echo-entry-healthz (infra17)` | `6877f34279418bf8fa08011eb269e439` | HTTP GET :80 `/__entry/healthz`, 기대 200·본문 `ok`, 간격 60·타임아웃 2·재시도 1 |
+| 풀 `echo-entry-gcp` | `a54a6b4a5e1609a6815b8c046957e936` | 엔드포인트 `34.158.197.107`(GCP NLB → a, 장애 시 b), 검사 지역 NEAS |
+| 풀 `echo-entry-aws-c` | `38d4450a310cad0d59444d9e15b763e0` | 엔드포인트 `3.39.160.158`(AWS 서울 진입점 c EIP), 검사 지역 NEAS |
+| LB `entry-lb-check.echoport.uk` (**임시 확인용**) | `fd2e1d6893a4da68863492c4e676021c` | 프록시 켬, 스티어링 Off(Failover), 풀 순서 gcp → aws-c, 폴백 aws-c. **`*.echoport.uk` 전환 전** — `*` A 레코드(34.158.197.107)는 그대로. 전환은 지휘 세션 별도 승인 뒤 이 LB 의 이름을 `*.echoport.uk` 로 바꾸거나 새로 만든다 |
+
 ### Cloudflare API 토큰 (echo-was 용)
 
 | 항목 | 내용 |
@@ -66,6 +77,13 @@ curl -sS -X POST "https://api.cloudflare.com/client/v4/zones/<영역 id>/dns_rec
 | Secret `cert-manager/cloudflare-dns-token` | 같음 | 파일 없음(값은 Secret Manager 에서 넘김) | 같은 절의 `gcloud secrets versions access … \| kubectl create secret` |
 | ClusterIssuer `letsencrypt-dns` · Certificate `ingress-nginx/wildcard-gcp-seoul` | 같음 | `cluster-addons/gke/cert-manager/wildcard-gcp-seoul.yaml` | 같은 절의 `kubectl apply -f` |
 | ingress-nginx · EKS 닻 Ingress | GKE / EKS | `cluster-addons/gke/ingress-nginx-values.yaml`, `cluster-addons/eks/anchor-ingress.yaml` | [cluster-addons/README.md](../cluster-addons/README.md) "설치" 절 |
+| Service `ingress-nginx/ingress-nginx-entry-c`(외부 L4 LB **34.47.94.41**, 출처 `3.39.160.158/32` 만, GKE 자동 방화벽 `k8s-fw-a4841dc3…`) · 닻 Ingress `inbound-cidrs` 에 `3.39.160.158/32` 추가 (인프라 17) | GKE `echo-dev-gke` / EKS `echo-dev-eks` | `cluster-addons/gke/ingress-nginx-external-entry-c.yaml`, `cluster-addons/eks/anchor-ingress.yaml` | SPEC 인프라 17 7절 3단계 |
+
+## AWS 에 손으로 넣은 값
+
+| 자원 | 어디 | 값은 | 다시 만들 때 |
+|---|---|---|---|
+| SSM SecureString `/echo/dev/entry-c/weights-token` (인프라 17) | ap-northeast-2 | GCP Secret `echo-dev-entry-weights-token` 과 같은 값(진입점 a·b 와 같은 토큰). Terraform 은 값을 만들지 않는다 | SPEC 인프라 17 7절 1단계 |
 
 ## 이미 코드에 반영된 것
 

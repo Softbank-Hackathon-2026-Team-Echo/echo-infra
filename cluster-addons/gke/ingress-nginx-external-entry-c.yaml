@@ -22,7 +22,7 @@ spec:
   type: LoadBalancer
   externalTrafficPolicy: Local # 클라이언트 IP(c 의 EIP) 보존 — 내부 LB 와 같은 설정
   loadBalancerSourceRanges:
-    - 203.0.113.10/32 # ← 진입점 c EIP/32 로 바꾼다 (aws/dev 출력 entrypoint_c_ip)
+    - 3.39.160.158/32 # 진입점 c EIP/32 (aws/dev 출력 entrypoint_c_ip, 2026-11-07 적용)
   selector:
     app.kubernetes.io/name: ingress-nginx
     app.kubernetes.io/instance: ingress-nginx
