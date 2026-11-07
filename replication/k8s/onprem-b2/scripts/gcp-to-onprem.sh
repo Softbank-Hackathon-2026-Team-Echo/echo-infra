@@ -6,6 +6,7 @@
 #   prepare  : 앱용 Secret gcpcopy-env 를 기기 안에서 만든다(기존 DATABASE_URL 의 DB 이름만 gcpcopy 로). 비밀번호는 기기 밖으로 나오지 않는다
 #   failover : 구독 끄기 → 시퀀스 +1000 → 앱이 gcpcopy 를 보게 env 덮기 → 재시작 → 요약 출력      (CONFIRM=yes)
 #   back     : 앱 env 덮기를 지워 원래 DB(demo)로 → 구독 다시 켜기(밀린 변경을 받아 온다. 승격 뒤 쓴 행과 충돌할 수 있다)  (CONFIRM=yes)
+#   resync   : back 뒤 사본을 서울 B 와 똑같이(시험 중 쓴 행 버리고 재구독)  (CONFIRM=yes)
 #   status   : 구독·행 수·서울 B 와 비교
 source "$(dirname "$0")/common.sh"
 APP_NS=demo-y6cz3jrc
@@ -57,6 +58,23 @@ echo "온프레 앱 원래 DB(demo)로, 구독 다시 켬"
 EOF
     curl -s -m 8 "https://$APP_HOST/api/info"; echo
     ;;
+  resync)
+    # back 뒤 사본을 서울 B 와 똑같이 맞춘다: 승격 중 온프레에서 쓴 행을 버리고 구독을 다시 만든다(초기 복사, 수 초).
+    need_confirm resync
+    onprem_sh <<EOF
+set -e
+K="k3s kubectl -n echo-demo"
+P="\$K exec demo-db-0 -- psql -XAt -v ON_ERROR_STOP=1 -U demo -d gcpcopy"
+\$P -c "DROP SUBSCRIPTION IF EXISTS $GSUB" >/dev/null
+\$P -c "TRUNCATE demo.seq_write, shop.orders, shop.items, echo_ops.cutover_runs" >/dev/null
+PW=\$(\$K get secret gcp-repl -o jsonpath='{.data.password}' | base64 -d)
+\$P -c "CREATE SUBSCRIPTION $GSUB CONNECTION 'host=34.158.218.66 port=5432 dbname=app user=repl_gcp_onprem password=\$PW sslmode=require' PUBLICATION echo_pub" >/dev/null
+unset PW
+for i in \$(seq 1 30); do st=\$(\$P -c "select string_agg(srsubstate::text,'') from pg_subscription_rel"); case \$st in *[!r]*|'') sleep 2;; *) break;; esac; done
+echo "재구독 상태: \$st"
+EOF
+    "$0" status
+    ;;
   status)
     onprem_sh <<EOF
 P="k3s kubectl -n echo-demo exec demo-db-0 -- psql -XAt -U demo -d gcpcopy"
@@ -65,5 +83,5 @@ P="k3s kubectl -n echo-demo exec demo-db-0 -- psql -XAt -U demo -d gcpcopy"
 EOF
     kubectl --context "$GCP_CTX" -n echo-data exec -i echo-pg-0 -c postgres -- psql -X -U postgres -d app -tA -c "select 'seoul B        '||($SNAP)"
     ;;
-  *) echo "사용법: $0 prepare|failover|back|status" >&2; exit 2 ;;
+  *) echo "사용법: $0 prepare|failover|back|resync|status" >&2; exit 2 ;;
 esac
