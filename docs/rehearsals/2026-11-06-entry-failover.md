@@ -2,7 +2,7 @@
 
 ## 조건
 
-- 진입점 a(`echo-dev-entry`, 34.158.202.103) · b(`echo-dev-entry-b`, 8.230.16.205), Cloudflare `*.echoport.uk` 프록시 A 레코드 두 개.
+- 진입점 a(`echo-dev-entry`, <ENTRY_A_IP>) · b(`echo-dev-entry-b`, <ENTRY_B_IP>), Cloudflare `*.echoport.uk` 프록시 A 레코드 두 개.
 - 측정 직전 Cloudflare 가 이쪽 요청을 b 로 보내고 있어(40건 중 b 44 · a 0) **b 를 멈췄다**. 가중치 API·Prometheus 가 있는 a 는 그대로라 이전·지표에는 영향이 없다.
 - `entrypoint/scripts/failover-probe.sh`: 대표 주소 `/healthz` 를 Cloudflare 경유 초당 4회, 150초, 클라이언트 타임아웃 5초.
 
@@ -24,7 +24,7 @@
 
 ## 2차: 헬스체크 NLB 뒤 (16:01, 인프라 5.3 · PR #84)
 
-리전 외부 패스스루 NLB `34.158.197.107`(헬스체크 `/__entry/healthz` 2초 간격·2회 실패 제외, 평소 a · a 장애 시 b 장애 조치 백엔드)을 두고, LB 로 직접 초당 약 2회 150초 보내며 **a 를 멈췄다**.
+리전 외부 패스스루 NLB `<ENTRY_NLB_IP>`(헬스체크 `/__entry/healthz` 2초 간격·2회 실패 제외, 평소 a · a 장애 시 b 장애 조치 백엔드)을 두고, LB 로 직접 초당 약 2회 150초 보내며 **a 를 멈췄다**.
 
 | 시각 | 일 |
 |---|---|

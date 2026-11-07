@@ -53,8 +53,8 @@ flowchart LR
 
 | 환경 | 구성 | 공개 경로 | 세우는 법 |
 |---|---|---|---|
-| AWS 도쿄 | EKS `echo-dev-eks`(비공개 노드, NAT 18.180.171.76), ECR `echo/app`, ALB 공유 문 `echo-dev-apps`(80·443, ACM `*.aws-tokyo.echoport.uk`) | `{서비스}-{suffix}.aws-tokyo.echoport.uk` → ALB(진입점 a·b·GKE NAT 만 허용) | `terraform/environments/aws/dev` apply 1회 + `cluster-addons/eks` |
-| GCP 서울 | GKE `echo-dev-gke`(비공개 노드, NAT 34.64.211.218), Artifact Registry `echo`, ingress-nginx 내부 LB 10.60.0.8(Let's Encrypt `*.gcp-seoul.echoport.uk`) | `{서비스}-{suffix}.gcp-seoul.echoport.uk` → VPC 안에서만(일꾼 헬스체크) | `terraform/environments/gcp/dev` apply 1회 + `cluster-addons/gke` |
+| AWS 도쿄 | EKS `echo-dev-eks`(비공개 노드, NAT <AWS_NAT_IP>), ECR `echo/app`, ALB 공유 문 `echo-dev-apps`(80·443, ACM `*.aws-tokyo.echoport.uk`) | `{서비스}-{suffix}.aws-tokyo.echoport.uk` → ALB(진입점 a·b·GKE NAT 만 허용) | `terraform/environments/aws/dev` apply 1회 + `cluster-addons/eks` |
+| GCP 서울 | GKE `echo-dev-gke`(비공개 노드, NAT <GCP_NAT_IP>), Artifact Registry `echo`, ingress-nginx 내부 LB 10.60.0.8(Let's Encrypt `*.gcp-seoul.echoport.uk`) | `{서비스}-{suffix}.gcp-seoul.echoport.uk` → VPC 안에서만(일꾼 헬스체크) | `terraform/environments/gcp/dev` apply 1회 + `cluster-addons/gke` |
 | 온프레 | k3s 단일 노드(어느 리눅스 기기든 `onprem/install.sh`), Traefik, cloudflared 터널(들어오는 포트 0) | `{서비스}-{suffix}.echoport.uk` CNAME → 터널 | `install.sh` 1회 |
 
 - 두 클라우드 모두 Terraform(원격 상태), 예산 알림 80%·100%, 저장소 비밀 0건(OIDC·Workload Identity, tfvars 는 로컬).
@@ -66,7 +66,7 @@ flowchart LR
 - **가중치**: `PUT /weights {"aws":50,"gcp":50}` → 파일 기반 xDS, 재시작 없이 즉시(로컬 측정 1초 안). 10 → 50 → 100% 단계 승격은 echo-was 가 `GET /counters`(환경별 누적 요청·5xx, Envoy 호스트 통계라 즉시)로 "도착 환경이 N건 처리"를 확인한 뒤 올린다.
 - **장애**: `/healthz` 2초 간격, 2회 실패면 제외. aggregate 클러스터(`aws_then_gcp`·`gcp_then_aws`)라 한쪽이 전멸하면 가중치와 무관하게 전부 다른 쪽으로 간다.
 - **DNS 가중치를 쓰지 않는 이유**(`entrypoint/README.md`): 반영 시점이 TTL·리졸버 캐시에 묶여 비율을 알 수 없고, 요청을 세지 못해 건수 판정이 안 되며, 롤백 60초(NFR-05)를 보장 못 한다. Envoy 는 어느 클라우드에서도 같은 설정이라 벤더 중립이다.
-- **단일 장애점 대응(인프라 5.1)**: 같은 VM 을 다른 존(b)에 하나 더 두고(11/4 적용, 8.230.16.205) Cloudflare 의 `*.echoport.uk` 에 프록시된 A 레코드를 두 IP 로 둔다 — 한 IP 가 실패하면 Cloudflare 가 다른 IP 로 재시도한다. 보조는 주의 `/weights` 를 2초마다 당겨 가중치를 맞추고 토큰은 Secret Manager 값을 공유한다. DNS 는 프록시 자체의 생존에만 쓴다. 11/6 실측: 헬스체크 없는 DNS 라운드로빈만으로는 페일오버가 되지 않아(b 정지 75초 동안 126건 중 15건 실패) **진입점 앞에 헬스체크 NLB(평소 a, a 장애 시 b)를 뒀다** — a 정지 시 3.8초 뒤 자동으로 b(7절, #82·#84). 평소 트래픽이 a 에 모여 echo-was 가중치·판정·지표도 그대로 맞는다.
+- **단일 장애점 대응(인프라 5.1)**: 같은 VM 을 다른 존(b)에 하나 더 두고(11/4 적용, <ENTRY_B_IP>) Cloudflare 의 `*.echoport.uk` 에 프록시된 A 레코드를 두 IP 로 둔다 — 한 IP 가 실패하면 Cloudflare 가 다른 IP 로 재시도한다. 보조는 주의 `/weights` 를 2초마다 당겨 가중치를 맞추고 토큰은 Secret Manager 값을 공유한다. DNS 는 프록시 자체의 생존에만 쓴다. 11/6 실측: 헬스체크 없는 DNS 라운드로빈만으로는 페일오버가 되지 않아(b 정지 75초 동안 126건 중 15건 실패) **진입점 앞에 헬스체크 NLB(평소 a, a 장애 시 b)를 뒀다** — a 정지 시 3.8초 뒤 자동으로 b(7절, #82·#84). 평소 트래픽이 a 에 모여 echo-was 가중치·판정·지표도 그대로 맞는다.
 
 ## 4. 빌드·배포 경로 (F1)
 
@@ -91,7 +91,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 - 대조: 순번 쓰기 N건 → 누락 0·중복 0 (`verify.sh`). 재난(A 급사)은 롤백이 아니라 승격(B 구독 DISABLE → B 백엔드를 B 로).
 - **시연 순서**(11/4 합동 리허설로 확정): Echo 이전(앱, 10→50→100%) → DB 컷오버 A→B → Echo 복귀 → DB 롤백 B→A. 이전 도중 컷오버하면 쓰기 정지 8초가 오류율 롤백을 부르고, 복귀의 데이터 확인은 역방향 구독(`echo_sub_rev`)이 있어야 통과하므로 컷오버가 복귀보다 앞선다.
 - 스크립트: `replication/k8s/scripts/{subscribe,lag,cutover,rollback,verify,writer,rehearsal}.sh`. 리허설 1회가 `rehearsals/<시각>.md` 표를 남긴다.
-- **11/4 실배선 상태**: A(도쿄) Postgres 17 `ssl=on`·`wal_level=logical`·발행 `echo_pub`, NLB `echo-dev-pg-a-….elb.ap-northeast-1.amazonaws.com:5432`(GCP NAT 34.64.211.218/32 만, 자체 서명 `CN=echo-pg-a`, `sslmode=require`). B(서울) 같은 구성, LB `34.22.85.222:5432`(AWS NAT 18.180.171.76/32 만). B 구독 `echo_sub` 생성 → A 에서 `streaming`, `demo.seq_write` 동기 상태 ready. 두 PgBouncer 백엔드는 모두 A(B 는 라이브 ini 와 ConfigMap 둘 다 A 로 맞춤). 계정은 양쪽 동일(`app_rw`·`repl_user`·`pgbouncer_auth`·`echo_monitor`).
+- **11/4 실배선 상태**: A(도쿄) Postgres 17 `ssl=on`·`wal_level=logical`·발행 `echo_pub`, NLB `echo-dev-pg-a-….elb.ap-northeast-1.amazonaws.com:5432`(GCP NAT <GCP_NAT_IP>/32 만, 자체 서명 `CN=echo-pg-a`, `sslmode=require`). B(서울) 같은 구성, LB `<GCP_PG_LB_IP>:5432`(AWS NAT <AWS_NAT_IP>/32 만). B 구독 `echo_sub` 생성 → A 에서 `streaming`, `demo.seq_write` 동기 상태 ready. 두 PgBouncer 백엔드는 모두 A(B 는 라이브 ini 와 ConfigMap 둘 다 A 로 맞춤). 계정은 양쪽 동일(`app_rw`·`repl_user`·`pgbouncer_auth`·`echo_monitor`).
 - **복제 지연 판정 연결**: echo-was `PostgresDataSyncChecker`(DATA_SYNC_CHECK) 가 발행 쪽 `pg_stat_replication.replay_lag` 를 `echo_monitor`(pg_monitor, 읽기 전용) 계정으로 읽는다. 비밀번호는 GCP Secret Manager `echo-dev-echo-was-pg-monitor-password` 에만(껍데기 Terraform, 값은 `monitor-user.sh`).
 
 ## 6. 측정·관측 (F17)
@@ -127,7 +127,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 ## 8. 보안·권한 (인프라 몫)
 
 - 장기 키 없음: GitHub Actions 는 OIDC(AWS 역할 `echo-dev-ci-build`, GCP WIF), 실행기는 관제탑 GSA 의 Google ID 토큰 → AWS STS. 비밀은 Secret Manager 참조.
-- 공개 경로 최소: 진입점 80 만 공개(9090 은 온프레 EIP 13.124.120.121/32 만, remote write), ALB 는 진입점 a·b·GKE NAT 세 IP, nginx 는 내부 LB, DB cross-cloud 는 상대 NAT IP 만 + TLS(양쪽 PgBouncer `server_tls_sslmode = require`), GKE·EKS 노드 비공개, 온프레 들어오는 포트 0(터널).
+- 공개 경로 최소: 진입점 80 만 공개(9090 은 온프레 EIP <ONPREM_EIP>/32 만, remote write), ALB 는 진입점 a·b·GKE NAT 세 IP, nginx 는 내부 LB, DB cross-cloud 는 상대 NAT IP 만 + TLS(양쪽 PgBouncer `server_tls_sslmode = require`), GKE·EKS 노드 비공개, 온프레 들어오는 포트 0(터널).
 - 노드 커널(CVE-2026-98432, 11/5 점검): 진입점 VM(Debian 6.1.190-1)·EKS(AL2023 6.12.113)·GKE(1.36.5-gke.1982000, COS 6.12.113, RAPID 채널) 패치. 온프레 EC2(Ubuntu linux-aws 7.0)는 수정 패키지 전 — 인바운드 0·터널만이라 원격 경로 없음, 패치 나오면 재부팅(보안 담당).
 - DB 컷오버 신원 분리(인프라 12.2, PR #72): 컷오버는 서울 GKE `echo-ops` 의 Job 이 전용 신원(GSA `echo-dev-cutover` → AWS 역할 `echo-dev-cutover`, 두 클러스터 `echo-data` 에 Role 최소 권한·secrets 없음)으로 돌린다. echo-was 실행기는 Job 생성·상태 읽기만. 11/5 Terraform 적용, 매니페스트·이미지 적용 진행 중.
 - 온프레 실행기: 전용 SA + ClusterRole 최소 권한(네임스페이스 get·list·create·delete, 노드 get·list — 11/4 환경 카드 노드 수용 추가, RoleBinding get·create, `echo-app-deployer` bind) + ValidatingAdmissionPolicy(라벨 `managed-by=echo-was` 네임스페이스 밖은 거부).

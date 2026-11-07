@@ -17,8 +17,8 @@
 |---|---|
 | 시연 앱(`demo-*/app`, echo/app digest 877f0b…)에 `/metrics` 없음(온프레 404) | SSM `curl` |
 | 실행기가 만든 앱 파드 라벨 `app.kubernetes.io/managed-by=echo-was`, `app.kubernetes.io/name=app`, 포트 이름 `http`(8080) | GKE `kubectl get pods` |
-| 진입점 VM a(`echo-dev-entry` 10.60.0.6 / 34.158.202.103)·b(`echo-dev-entry-b` 10.60.0.9 / 8.230.16.205) 모두 Prometheus v3.15.1, `web.enable-remote-write-receiver=false`, `web.config.file` 없음. **Prometheus·Grafana 가 VM마다 따로** | `/api/v1/status/flags`, `gcloud compute instances list` |
-| 9090 방화벽: `echo-dev-entry-admin` = EKS NAT 18.180.171.76/32 · GKE NAT 34.64.211.218/32. `echo-dev-internal` 이 GKE 파드 대역 10.61.0.0/16 → VM 내부 IP 허용. 온프레 EC2 공인 IP 3.36.77.175 는 없음 | `gcloud compute firewall-rules list` |
+| 진입점 VM a(`echo-dev-entry` 10.60.0.6 / <ENTRY_A_IP>)·b(`echo-dev-entry-b` 10.60.0.9 / <ENTRY_B_IP>) 모두 Prometheus v3.15.1, `web.enable-remote-write-receiver=false`, `web.config.file` 없음. **Prometheus·Grafana 가 VM마다 따로** | `/api/v1/status/flags`, `gcloud compute instances list` |
+| 9090 방화벽: `echo-dev-entry-admin` = EKS NAT <AWS_NAT_IP>/32 · GKE NAT <GCP_NAT_IP>/32. `echo-dev-internal` 이 GKE 파드 대역 10.61.0.0/16 → VM 내부 IP 허용. 온프레 EC2 공인 IP <ONPREM_EC2_IP> 는 없음 | `gcloud compute firewall-rules list` |
 | weights-api `/summary` 와 Grafana 데이터소스가 `http://prometheus:9090` 을 **인증 없이** 읽는다 | `entrypoint/weights-api/app.py`, `datasources/prometheus.yml` |
 | Prometheus basic auth(`--web.config.file`)는 쿼리·UI 를 포함한 **모든 경로**에 걸린다(경로별로 나눌 수 없다) | Prometheus 문서, 로컬 확인 |
 | Prometheus 불리언 플래그는 `--flag=false` 를 받지 않는다(`unexpected true` 로 기동 실패) → `--[no-]flag` 형태 | 로컬 확인 |
@@ -54,9 +54,9 @@
 
 | 환경 | cloud.provider | cloud.region | k8s.cluster.name | 진입점 주소 | 경로 |
 |---|---|---|---|---|---|
-| EKS | aws | ap-northeast-1 | echo-dev-eks | 34.158.202.103 / 8.230.16.205 | NAT 18.180.171.76 → admin 방화벽(이미 열림) |
+| EKS | aws | ap-northeast-1 | echo-dev-eks | <ENTRY_A_IP> / <ENTRY_B_IP> | NAT <AWS_NAT_IP> → admin 방화벽(이미 열림) |
 | GKE | gcp | asia-northeast3 | echo-dev-gke | 10.60.0.6 / 10.60.0.9 | VPC 내부(echo-dev-internal) |
-| 온프레 | onprem | ap-northeast-2 | echo-onprem-demo | 34.158.202.103 / 8.230.16.205 | EC2 공인 IP → **새 방화벽 `echo-dev-entry-remote-write`(9090 만)** |
+| 온프레 | onprem | ap-northeast-2 | echo-onprem-demo | <ENTRY_A_IP> / <ENTRY_B_IP> | EC2 공인 IP → **새 방화벽 `echo-dev-entry-remote-write`(9090 만)** |
 
 | 결정 | 내용 | 출처 |
 |---|---|---|

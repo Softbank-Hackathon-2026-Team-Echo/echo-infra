@@ -14,7 +14,7 @@ AWS 에 서비스가 처음 도는 환경(EKS 클러스터 하나)을 Terraform 
 ## 2. 현재 맥락과 확인된 사실
 
 - 저장소: `README.md` 한 줄(초기 커밋 `481cbf3`). 팀 틀은 echo-was 를 따른다(규칙·SPEC·PR 템플릿).
-- 본선 AWS 계정: `706878591119`. IAM 그룹 `echo-dev`(AdministratorAccess)에 dohyun·dongok·hyungrae·jimin. 기본 VPC(`172.31.0.0/16`)만 있다. 예산 2개가 이미 있다: `My Monthly Cost Budget`(USD 150), `My Zero-Spend Budget`(USD 1).
+- 본선 AWS 계정: `<ACCOUNT_ID>`. IAM 그룹 `echo-dev`(AdministratorAccess)에 dohyun·dongok·hyungrae·jimin. 기본 VPC(`172.31.0.0/16`)만 있다. 예산 2개가 이미 있다: `My Monthly Cost Budget`(USD 150), `My Zero-Spend Budget`(USD 1).
 - echo-was 계약
   - `aws` 환경 config = `region`(`ap-northeast-2` 형식) + `cluster_name`. 어댑터는 EKS 를 전제한다(`ClusterInfo` = 쿠버네티스 `gitVersion`·`node_count`). 실제 EKS 접속 어댑터는 "인프라 파트가 클러스터를 만든 뒤 별도 작업".
   - 환경 이름은 RFC 1123 label(`aws-seoul`). 이미지는 `repo@sha256:…`, tag 금지.

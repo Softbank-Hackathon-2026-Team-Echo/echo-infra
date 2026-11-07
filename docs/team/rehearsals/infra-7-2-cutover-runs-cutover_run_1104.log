@@ -1,9 +1,9 @@
 > 출처: 김지민 개인 보관 `archive/softbank-hackathon-2026/infra-7-2-cutover-runs/cutover_run_1104.log`(저장소 밖) · 수집 시각 2026-11-05 03:19 KST · 저장소에 올림: 김지민 (11/5) \
 > 원문 그대로이며 정리본이 아닙니다. 바꾼 곳: 없음(머리 3줄만 더함)
 
-KUBECONFIG=/Users/jimin/.hermes/cache/scratch/dy_reply_1104/kube/config 준비됨 (AWS 706878591119)
+KUBECONFIG=/Users/jimin/.hermes/cache/scratch/dy_reply_1104/kube/config 준비됨 (AWS <ACCOUNT_ID>)
 8f9ae8f merge: 인프라 7.2 컷오버 결과 표 기록
-A_HOST=echo-dev-pg-a-cb5bc23aab2d0c23.elb.ap-northeast-1.amazonaws.com B_HOST=34.22.85.222
+A_HOST=<DB_NLB_HOST> B_HOST=<GCP_PG_LB_IP>
 == 시작 전 대조 22:51:55
 A: 168|168|168|0|0
 B: 168|168|168|0|0
@@ -58,6 +58,6 @@ CUTOVER|A→B|22:51:59.670|5817|774|428|4615|168|0|0
 ROLLBACK|B→A|22:52:13.087|6645|714|288|5644|168|0|0
 구독: echo_sub(enabled=true)  walsender: 
 Defaulted container "pgbouncer" out of: pgbouncer, copy-ini (init)
-PgBouncer 백엔드: app = host=echo-dev-pg-a-cb5bc23aab2d0c23.elb.ap-northeast-1.amazonaws.com port=5432 dbname=app
+PgBouncer 백엔드: app = host=<DB_NLB_HOST> port=5432 dbname=app
 B 구독 오류 수: 0
 DONE 22:52:29

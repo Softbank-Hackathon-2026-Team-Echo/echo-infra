@@ -15,7 +15,7 @@
 | `secret.example.yaml` | **예시**. 실제 Secret 은 손으로 만든다(저장소에 비밀값 0건, NFR-17) |
 | `10-postgres.yaml` | Postgres StatefulSet(`wal_level=logical`, `ssl=on`) + 헤드리스 Service + 초기화(계정·`echo_pub` 발행) |
 | `20-pgbouncer.yaml` | PgBouncer Deployment(ini = emptyDir, `v1.26.1-p0`) + Service(앱 접속구 `echo-pgbouncer:6432`) + scram/auth_query 설정 |
-| `30-expose.yaml` | 외부 노출 NLB `echo-dev-pg-a`(GCP NAT `34.64.211.218/32` 만) |
+| `30-expose.yaml` | 외부 노출 NLB `echo-dev-pg-a`(GCP NAT `<GCP_NAT_IP>/32` 만) |
 | `40-tls.md` | TLS 인증서 Secret 만드는 법 · 지금 인증서 만료일 |
 
 ### 손으로 만든 것 (코드에 없음)
