@@ -22,8 +22,8 @@ EOF
 journal_off() { entry "curl -s -o /dev/null -X POST '127.0.0.1:9901/runtime_modify?journal.enabled=0'" && echo "[정리] 진입점 a 기록 끔"; }
 
 echo "== 1 진입점 a 기록 켜기"
-entry "curl -s -o /dev/null -X POST '127.0.0.1:9901/runtime_modify?journal.enabled=100'; curl -s 127.0.0.1:9901/runtime | grep -o '\"journal.enabled\"[^}]*}'"
-trap journal_off EXIT
+trap journal_off EXIT   # 켜기 전에 건다: 어느 단계에서 멈춰도 기록은 꺼진다
+entry "curl -s -o /dev/null -X POST '127.0.0.1:9901/runtime_modify?journal.enabled=100'; curl -s 127.0.0.1:9901/runtime | python3 -c 'import json,sys; print(\"journal.enabled =\", json.load(sys.stdin)[\"entries\"][\"journal.enabled\"][\"final_value\"])'"
 T0=$(date +%s); sleep 1
 
 echo "== 2 온프레 사본 구독 끄기 (GCP 안 보임)"
