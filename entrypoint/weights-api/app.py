@@ -26,9 +26,12 @@ Envoy 가 읽는 파일 기반 xDS(/etc/envoy/dynamic/clusters.yaml·routes.yaml
                    주가 죽으면 마지막 값을 유지한다 (인프라 5.1 진입점 두 곳 PoC). 비어 있으면 동기화 없음
   SERVICE_ROUTING_ENABLED  0(기본 legacy) 또는 1(서비스별 격리). 잘못된 값은 시작 거절
   SERVICE_ROUTES_FILE      검증된 serviceId/publicHost/환경 UUID/origin 등록 JSON의 읽기 전용 경로
+  READ_FAILOVER_ENABLED    0(기본 OFF) 또는 1. 서비스 모드 + 명시 정책이 필수
+  READ_FAILOVER_POLICIES_FILE  검증된 stateless GET/HEAD 정확 경로만 허용하는 운영자 정책
 
 서비스 모드 계약: contracts/service-routing.md. ON에서 전역 weights API는 거절하며
-v1 서비스 scope 요청만 처리한다. DB·자동 fallback 목적지 자격·온프레 TLS는 별도 범위다.
+v1 서비스 scope 요청만 처리한다. stateless 단절 안전 후보는 contracts/network-resilience.md.
+DB·일반 앱 fallback 목적지 자격·온프레 TLS는 별도 범위다. native Envoy 인수 전 ON 금지.
 """
 
 import base64
@@ -64,6 +67,12 @@ if os.environ.get("SERVICE_ROUTING_ENABLED", "0") not in ("0", "1"):
     raise ValueError("SERVICE_ROUTING_ENABLED must be 0 or 1; refusing silent legacy fallback")
 SERVICE_ROUTING_ENABLED = os.environ.get("SERVICE_ROUTING_ENABLED", "0") == "1"
 SERVICE_ROUTES_FILE = os.environ.get("SERVICE_ROUTES_FILE", "")
+if os.environ.get("READ_FAILOVER_ENABLED", "0") not in ("0", "1"):
+    raise ValueError("READ_FAILOVER_ENABLED must be 0 or 1")
+READ_FAILOVER_ENABLED = os.environ.get("READ_FAILOVER_ENABLED", "0") == "1"
+READ_FAILOVER_POLICIES_FILE = os.environ.get("READ_FAILOVER_POLICIES_FILE", "")
+if READ_FAILOVER_ENABLED and not SERVICE_ROUTING_ENABLED:
+    raise ValueError("read failover requires explicit service routing")
 SCOPED_STORE = None
 
 LOCK = threading.Lock()  # 쓰기(PUT)만 직렬화한다. 읽기는 CURRENT 를 통째로 바꾸므로 잠그지 않는다
@@ -687,6 +696,330 @@ class ServiceRouteStore:
         self.registry_hash = hashlib.sha256(
             json.dumps(self.registry, sort_keys=True).encode()
         ).hexdigest()
+        self.read_policies = {}
+        self.read_samples = {}
+        self.read_ready = set()
+        self.read_seen = set()
+        if READ_FAILOVER_ENABLED:
+            self._load_read_policies()
+
+    def _load_read_policies(self):
+        """Trusted operator opt-in, stateless exact paths only; never DB promotion."""
+        with open(READ_FAILOVER_POLICIES_FILE, encoding="utf-8") as stream:
+            data = json.load(stream)
+        if (
+            not isinstance(data, dict)
+            or set(data) != {"services"}
+            or not isinstance(data["services"], list)
+            or not 1 <= len(data["services"]) <= 64
+        ):
+            raise ValueError("explicit read failover policies required")
+        for policy in data["services"]:
+            if not isinstance(policy, dict) or set(policy) != {
+                "serviceId",
+                "publicHost",
+                "statelessOnly",
+                "safePaths",
+                "eligibleEnvironmentIds",
+            }:
+                raise ValueError("invalid read policy")
+            sid = policy["serviceId"]
+            if (
+                sid not in self.registry
+                or sid in self.read_policies
+                or policy["publicHost"] != self.registry[sid]["publicHost"]
+                or policy["statelessOnly"] is not True
+            ):
+                raise ValueError("read policy scope/stateless attestation required")
+            paths, envs = policy["safePaths"], policy["eligibleEnvironmentIds"]
+            if (
+                not isinstance(paths, list)
+                or not 1 <= len(paths) <= 32
+                or any(
+                    not isinstance(p, str)
+                    or not re.fullmatch(r"/[A-Za-z0-9_/-]+", p)
+                    or p.startswith(("//", "/__entry/"))
+                    or "//" in p
+                    for p in paths
+                )
+                or len(set(paths)) != len(paths)
+            ):
+                raise ValueError(
+                    "explicit exact stateless paths required; no wildcard/root/query"
+                )
+            if (
+                not isinstance(envs, list)
+                or not 2 <= len(envs) <= 8
+                or any(
+                    not isinstance(e, str)
+                    or e not in self.registry[sid]["environments"]
+                    for e in envs
+                )
+                or len(set(envs)) != len(envs)
+            ):
+                raise ValueError("explicit registered read-safe environments required")
+            primary = [
+                e for e, w in self.registry[sid]["initialWeights"].items() if w == 100
+            ]
+            if len(primary) != 1 or primary[0] not in envs:
+                raise ValueError("read policy requires one explicit initial primary")
+            self.read_policies[sid] = copy.deepcopy(policy)
+        self.read_policy_hash = hashlib.sha256(
+            json.dumps(self.read_policies, sort_keys=True).encode()
+        ).hexdigest()
+        self.read_state_path = self.state_dir / "read-failover.json"
+        self._read_state()  # Corruption is not permission to reset quarantines.
+
+    def _read_state(self):
+        try:
+            data = json.loads(self.read_state_path.read_text())
+        except FileNotFoundError:
+            if (self.state_dir / "read-failover.initialized").exists():
+                raise OSError("read failover state lost; manual recovery required")
+            data = {
+                "registryHash": self.registry_hash,
+                "policyHash": self.read_policy_hash,
+                "services": {
+                    sid: {
+                        "selected": next(
+                            e
+                            for e, w in self.registry[sid]["initialWeights"].items()
+                            if w == 100
+                        ),
+                        "quarantined": [],
+                        "writesBlocked": False,
+                    }
+                    for sid in self.read_policies
+                },
+            }
+        if (
+            not isinstance(data, dict)
+            or set(data) != {"registryHash", "policyHash", "services"}
+            or data["registryHash"] != self.registry_hash
+            or data["policyHash"] != self.read_policy_hash
+            or not isinstance(data["services"], dict)
+            or set(data["services"]) != set(self.read_policies)
+        ):
+            raise OSError("read failover state scope mismatch")
+        for sid, state in data["services"].items():
+            envs = self.read_policies[sid]["eligibleEnvironmentIds"]
+            if (
+                not isinstance(state, dict)
+                or set(state) != {"selected", "quarantined", "writesBlocked"}
+                or state["selected"] not in envs
+                or not isinstance(state["quarantined"], list)
+                or any(e not in envs for e in state["quarantined"])
+                or len(set(state["quarantined"])) != len(state["quarantined"])
+                or state["selected"] in state["quarantined"]
+                or type(state["writesBlocked"]) is not bool
+            ):
+                raise OSError("invalid read failover latch")
+        return data
+
+    def _save_read_state(self, data):
+        text = json.dumps(data, sort_keys=True)
+        if (
+            not self.read_state_path.exists()
+            or self.read_state_path.read_text() != text
+        ):
+            write_atomic(str(self.read_state_path), text)
+        marker = self.state_dir / "read-failover.initialized"
+        if not marker.exists():
+            write_atomic(str(marker), self.read_policy_hash)
+
+    def poll_read_health(self):
+        """An admin outage preserves the last rendered config, not a new failover."""
+        try:
+            with urllib.request.urlopen(
+                f"{ENVOY_ADMIN}/clusters?format=json", timeout=0.4
+            ) as response:
+                raw = response.read(1048577)
+                if len(raw) > 1048576:
+                    return False
+                data = json.loads(raw)
+            if not isinstance(data, dict) or not isinstance(
+                data.get("cluster_statuses"), list
+            ):
+                return False
+            if any(
+                not isinstance(c, dict)
+                or not isinstance(c.get("name"), str)
+                or not isinstance(c.get("host_statuses", []), list)
+                or any(not isinstance(h, dict) for h in c.get("host_statuses", []))
+                for c in data["cluster_statuses"]
+            ):
+                return False
+            self.observe_read_health(data)
+            return True
+        except (OSError, ValueError, urllib.error.URLError):
+            return False
+
+    def observe_read_health(self, data, now=None):
+        """Native admin input seam; no probe failure is interpreted as DB death.
+
+        Missing admin/invalid response is handled by caller: keep last good files.
+        Positive samples require active-check evidence and two seconds stable.
+        Failed selection latches writes OFF. Departed origins remain quarantined.
+        """
+        if not self.read_policies:
+            return
+        now = time.monotonic() if now is None else now
+        clusters = {
+            item["name"]: item.get("host_statuses", [])
+            for item in data["cluster_statuses"]
+        }
+        with self.lock, (self.state_dir / "services.lock").open("a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            state = self._read_state()
+            for sid, policy in self.read_policies.items():
+                latch = state["services"][sid]
+                for eid in policy["eligibleEnvironmentIds"]:
+                    hosts = clusters.get(cluster_id(sid, eid), [])
+                    healthy = bool(hosts) and all(
+                        isinstance(h.get("health_status"), dict)
+                        and h["health_status"].get("eds_health_status") == "HEALTHY"
+                        and not any(
+                            h["health_status"].get(key, False) is not False
+                            for key in (
+                                "failed_active_health_check",
+                                "failed_outlier_check",
+                                "failed_active_degraded_check",
+                                "pending_dynamic_removal",
+                                "pending_active_hc",
+                                "excluded_via_immediate_hc_fail",
+                            )
+                        )
+                        for h in hosts
+                    )
+                    key = (sid, eid)
+                    sample = self.read_samples.setdefault(
+                        key, {"since": now, "last": now, "good": 0, "bad": 0}
+                    )
+                    if not 0 <= now - sample["last"] <= 1.5:
+                        sample.update(since=now, good=0, bad=0)
+                        self.read_ready.discard(key)
+                    sample["last"] = now
+                    if healthy:
+                        if sample["good"] == 0:
+                            sample["since"] = now
+                        sample["good"] += 1
+                        sample["bad"] = 0
+                        if sample["good"] >= 3 and now - sample["since"] >= 2.0:
+                            self.read_ready.add(key)
+                            self.read_seen.add(key)
+                    else:
+                        sample["good"] = 0
+                        sample["bad"] += 1
+                        self.read_ready.discard(key)
+                selected = latch["selected"]
+                if self.read_samples[(sid, selected)]["bad"] >= 2:
+                    candidates = [
+                        eid
+                        for eid in policy["eligibleEnvironmentIds"]
+                        if eid not in latch["quarantined"]
+                        and (sid, eid) in self.read_ready
+                    ]
+                    if candidates or (sid, selected) in self.read_seen:
+                        latch["writesBlocked"] = True
+                    if candidates:
+                        latch["quarantined"].append(selected)
+                        latch["selected"] = candidates[0]
+            self._save_read_state(state)
+            # _save has the same flock; never call snapshot() recursively here.
+            snapshot = self._load()
+            text = json.dumps(self.routes(snapshot))
+            if (self.root / "routes.yaml").read_text() != text:
+                write_atomic(str(self.root / "routes.yaml"), text)
+
+    def _read_routes(self, sid, state, ordinary):
+        policy = self.read_policies[sid]
+        latch = self._read_state()["services"][sid]
+        selected = latch["selected"]
+        ready = (sid, selected) in self.read_ready
+        # Prevent client-controlled timeout/retry headers from overriding the budget.
+        remove = [
+            "x-envoy-retry-on",
+            "x-envoy-retry-grpc-on",
+            "x-envoy-max-retries",
+            "x-envoy-retriable-status-codes",
+            "x-envoy-retriable-header-names",
+            "x-envoy-upstream-rq-timeout-ms",
+            "x-envoy-upstream-rq-per-try-timeout-ms",
+            "x-envoy-hedge-on-per-try-timeout",
+        ]
+        routes = []
+        for path in policy["safePaths"]:
+            for method in ("GET", "HEAD"):
+                route = {
+                    "match": {
+                        "path": path,
+                        "headers": [
+                            {"name": ":method", "string_match": {"exact": method}}
+                        ],
+                    },
+                    "request_headers_to_remove": remove,
+                }
+                if ready:
+                    route["route"] = {
+                        "cluster": cluster_id(sid, selected),
+                        "timeout": "1.5s",
+                        "retry_policy": {
+                            "retry_on": "connect-failure,refused-stream,reset",
+                            "num_retries": 1,
+                            "per_try_timeout": "0.5s",
+                            "retry_back_off": {
+                                "base_interval": "0.025s",
+                                "max_interval": "0.1s",
+                            },
+                        },
+                    }
+                else:
+                    route["direct_response"] = {
+                        "status": 503,
+                        "body": {"inline_string": "READ_TARGET_NOT_READY\n"},
+                    }
+                routes.append(route)
+        # Never replay writes. Once any active-origin failure is observed, writes
+        # need an independently verified writer contract; this candidate cannot unlock them.
+        primary = self.registry[sid]["initialWeights"]
+        block = latch["writesBlocked"] or state["weights"] != primary or not ready
+        ordinary = copy.deepcopy(ordinary)
+        ordinary["request_headers_to_remove"] = remove
+        ordinary["route"]["timeout"] = "1.5s"
+        ordinary["route"]["retry_policy"] = {
+            "retry_on": "connect-failure",
+            "num_retries": 0,
+        }
+        # Unlisted reads retain original origin, never fail over sensitive data.
+        for method in ("GET", "HEAD"):
+            read = copy.deepcopy(ordinary)
+            read["match"]["headers"] = [
+                {"name": ":method", "string_match": {"exact": method}}
+            ]
+            routes.append(read)
+        if block:
+            routes.append(
+                {
+                    "match": {"prefix": "/"},
+                    "direct_response": {
+                        "status": 503,
+                        "body": {
+                            "inline_string": "WRITE_SAFETY_NOT_READY; no dispatch\n"
+                        },
+                    },
+                }
+            )
+        else:
+            routes.append(ordinary)
+        for route in routes:
+            if "route" in route:
+                # Router calculates x-envoy timeout overrides before removing headers.
+                # HCM's stream cap is independent; native validation remains mandatory.
+                route["route"]["max_stream_duration"] = {
+                    "max_stream_duration": "1.5s",
+                    "grpc_timeout_header_max": "1.5s",
+                }
+        return routes
 
     def initial(self):
         return {
@@ -810,8 +1143,27 @@ class ServiceRouteStore:
                 "routes": [health, {"match": {"prefix": "/"}, "direct_response": {"status": 404}}],
             }
         )
+        for host in hosts:
+            sid = next(
+                (
+                    sid
+                    for sid, entry in self.registry.items()
+                    if host["domains"] == [entry["publicHost"]]
+                ),
+                None,
+            )
+            if sid in self.read_policies:
+                host["routes"] = [health] + self._read_routes(
+                    sid, snapshot["services"][sid], host["routes"][-1]
+                )
+        version = str(snapshot["generation"])
+        if self.read_policies:
+            effective = {"latch": self._read_state(), "ready": sorted(self.read_ready)}
+            version += "-" + hashlib.sha256(
+                json.dumps(effective, sort_keys=True).encode()
+            ).hexdigest()[:16]
         return {
-            "version_info": str(snapshot["generation"]),
+            "version_info": version,
             "resources": [
                 {
                     "@type": "type.googleapis.com/envoy.config.route.v3.RouteConfiguration",
@@ -871,6 +1223,16 @@ class ServiceRouteStore:
                         },
                     }
                 )
+                if sid in self.read_policies:
+                    cluster = clusters[-1]
+                    cluster["connect_timeout"] = "0.25s"
+                    check = cluster["health_checks"][0]
+                    check.update(
+                        timeout="0.25s",
+                        interval="0.5s",
+                        no_traffic_interval="0.5s",
+                        healthy_threshold=3,
+                    )
         return {"version_info": self.registry_hash, "resources": clusters}
 
     def _save(self, data):
@@ -885,6 +1247,8 @@ class ServiceRouteStore:
         with self.lock, (self.state_dir / "services.lock").open("a+") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             data = self._load()
+            if self.read_policies:
+                self._save_read_state(self._read_state())
             write_atomic(str(self.root / "clusters.yaml"), json.dumps(self.clusters()))
             self._save(data)
 
@@ -944,8 +1308,35 @@ class ServiceRouteStore:
         return result
 
 
+def read_failover_loop(stop):
+    """Local Envoy admin only. Bounded polling; no WAS/DB/weights writes."""
+    reachable = None
+    while not stop.is_set():
+        ok = SCOPED_STORE.poll_read_health()
+        if ok != reachable:
+            log(
+                msg=(
+                    "read failover admin reachable"
+                    if ok
+                    else "read failover admin unavailable; keeping last config"
+                )
+            )
+            reachable = ok
+        stop.wait(0.5)
+
+
 def main():
     seed()
+    stop = threading.Event()
+    monitor = None
+    if SERVICE_ROUTING_ENABLED and SCOPED_STORE.read_policies:
+        monitor = threading.Thread(
+            target=read_failover_loop,
+            args=(stop,),
+            daemon=True,
+            name="read-failover",
+        )
+        monitor.start()
     if SYNC_FROM:
         threading.Thread(target=sync_loop, daemon=True, name="weights-sync").start()
         log(msg="secondary entry: syncing weights", source=SYNC_FROM, interval_s=SYNC_INTERVAL)
@@ -955,6 +1346,11 @@ def main():
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        stop.set()
+        if monitor is not None:
+            monitor.join(timeout=2)
+        srv.server_close()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,31 @@
+{
+  "task": "NET-ENVOY1a",
+  "observedAtKst": "2026-11-07T18:15:37+0900",
+  "source": "terminal 도구의 직접 읽기 결과. daemon 접근 전 prerequisite 판단.",
+  "host": {"hostname": "gimjimin-ui-MacBookPro.local", "hwModel": "MacBookPro18,1", "architecture": "arm64", "dockerBinary": "/opt/homebrew/bin/docker"},
+  "environmentOverrides": {"DOCKER_HOST": null, "DOCKER_CONTEXT": null, "COLIMA_PROFILE": null},
+  "selectedContext": "colima",
+  "contexts": [
+    {"name": "colima", "description": "colima", "endpoint": "unix:///Users/jimin/.colima/default/docker.sock", "profile": "default", "status": "Stopped", "arch": "aarch64", "cpus": 2, "memoryBytes": 2147483648, "diskBytes": 107374182400, "runtime": "docker", "metadataPath": "/Users/jimin/.docker/contexts/meta/f24fd3749c1368328e2b149bec149cb6795619f244c5b584e844961215dadd16"},
+    {"name": "colima-echo", "description": "colima [profile=echo]", "endpoint": "unix:///Users/jimin/.colima/echo/docker.sock", "profile": "echo", "status": "Running", "arch": "aarch64", "cpus": 4, "memoryBytes": 6442450944, "diskBytes": 32212254720, "runtime": "docker", "metadataPath": "/Users/jimin/.docker/contexts/meta/38642f8658152422e590cd4c0aaf070a31e64d961044944612ee989e366001bd"},
+    {"name": "colima-rustdesk", "endpoint": "unix:///Users/jimin/.colima/rustdesk/docker.sock", "profile": "rustdesk", "status": "Running"},
+    {"name": "default", "endpoint": "unix:///var/run/docker.sock", "status": "NOT_QUERIED"}
+  ],
+  "executedReadOnlyCommands": ["date '+%Y-%m-%dT%H:%M:%S%z'", "hostname", "uname -m", "sysctl -n hw.model", "command -v docker", "docker context show", "docker context ls", "printenv DOCKER_HOST DOCKER_CONTEXT COLIMA_PROFILE", "docker context inspect colima colima-echo", "colima list --json"],
+  "comparison": {"previousEvidence": "../service-routing-build/ENVOY-NATIVE-REVIEW.md (2026-11-07 16:48~16:49 KST)", "previousSelectedContext": "colima", "previousEndpoint": "unix:///Users/jimin/.colima/default/docker.sock", "sameSelectedMetadata": true, "previousRunningDaemonReported": true, "runningNow": false, "echoIsSameEngine": false},
+  "verdict": "PARTIAL_BLOCKED_NEEDS_INPUT",
+  "reason": "과거 검수의 colima/default는 현재 Stopped다. colima-echo는 이미 Running이지만 다른 endpoint/profile이며 이번 실행의 승인된 동일 엔진이라고 확인할 수 없다. 새 엔진 시작 또는 대체 엔진 선택 없이 중단했다.",
+  "newApprovalPolicyBlock": false,
+  "daemonInfoAttempts": 0,
+  "manifestQueries": 0,
+  "imagePulls": 0,
+  "containerRuns": 0,
+  "newNetworks": 0,
+  "daemonStarts": 0,
+  "contextSwitches": 0,
+  "alternateSocketAccess": 0,
+  "sshAttempts": 0,
+  "approvedImage": {"repository": "envoyproxy/envoy", "sourceTag": "v1.39.6", "platform": "linux/arm64", "digest": "sha256:eebc293321d015af3ce65cb2424d0a7aaab417a7101f2a4e57d514b7826789ba", "manifestVerifiedThisTurn": false, "imageId": null},
+  "cleanup": {"taskContainersCreated": [], "taskNetworksCreated": [], "existingResourcesChanged": false, "inventoryOfOtherDaemons": "NOT_QUERIED; 보존을 이유로 다른 daemon 접근하지 않음"},
+  "nextRequiredInput": "부모가 기존 해커톤 엔진의 정확한 profile/context/endpoint를 확인해야 한다. colima-echo를 사용하라는 명시 지정 또는 기존 colima 재가동의 별도 승인이 없으므로 여기서는 실행하지 않는다."
+}

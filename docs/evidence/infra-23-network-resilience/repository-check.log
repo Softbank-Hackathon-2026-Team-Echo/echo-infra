@@ -1,0 +1,35 @@
+check: terraform fmt
+check: terraform validate terraform/bootstrap/aws
+Success! The configuration is valid.
+
+check: terraform validate terraform/bootstrap/gcp
+Success! The configuration is valid.
+
+check: terraform validate terraform/environments/aws/dev
+Success! The configuration is valid.
+
+check: terraform validate terraform/environments/aws/onprem-demo
+Success! The configuration is valid.
+
+check: terraform validate terraform/environments/gcp/ai-sandbox
+Success! The configuration is valid.
+
+check: terraform validate terraform/environments/gcp/dev
+
+Warning: Argument is deprecated
+
+  with google_container_cluster.customer,
+  on customer-gke.tf line 72, in resource "google_container_cluster" "customer":
+  72:   remove_default_node_pool = true
+
+On newer cluster versions (1.36.4-gke.1469000+) omit initial_node_count and
+node_config (or set initial_node_count = 0) instead.
+
+(and one more similar warning elsewhere)
+Success! The configuration is valid, but there were some validation warnings
+as shown above.
+
+check: terraform validate terraform/modules/github-repos
+Success! The configuration is valid.
+
+check: tflint
