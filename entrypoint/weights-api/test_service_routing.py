@@ -165,6 +165,20 @@ class ServiceRoutingTest(unittest.TestCase):
         self.assertEqual(self.request(path="/health")[0], 200)
         self.assertEqual(self.request()[0], 404)
 
+    def test_retry_try_timeout_outlasts_cutover_write_pause(self):
+        # 컷오버 쓰기 정지(약 10초) + PgBouncer 재접속 동안 요청이 504 로 끊기지 않아야 한다(#140 후속).
+        def secs(v):
+            return float(str(v).rstrip("s"))
+
+        self.request(body={"publicHost": "a.echo.test", "expectedRevision": 0, "weights": {AWS: 50, GCP: 50}})
+        hosts = json.loads((self.root / "routes.yaml").read_text())["resources"][0]["virtual_hosts"]
+        legacy = self.app.render_routes({"aws": 100, "gcp": 0})
+        self.assertIn("per_try_timeout: 30s", legacy)
+        self.assertIn("timeout: 35s", legacy)
+        for route in (hosts[0]["routes"][-1]["route"], hosts[1]["routes"][-1]["route"]):
+            self.assertGreaterEqual(secs(route["retry_policy"]["per_try_timeout"]), 30)
+            self.assertGreater(secs(route["timeout"]), secs(route["retry_policy"]["per_try_timeout"]))
+
     def test_service_mode_boots_without_legacy_upstreams(self):
         from unittest.mock import patch
 

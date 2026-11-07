@@ -209,11 +209,13 @@ def render_routes(weights):
         "            direct_response: { status: 200, body: { inline_string: \"ok\\n\" } }",
         "          - match: { prefix: / }",
         "            route:",
-        "              timeout: 30s",
+        # 시도 제한(per_try_timeout)은 컷오버 쓰기 정지(약 10초) + PgBouncer 재접속보다 길어야 한다.
+        # 5초면 정지 중 쓰기가 504 가 된다(#140 후속). 전체 timeout 은 시도 제한보다 길게.
+        "              timeout: 35s",
         "              retry_policy:",
         "                retry_on: connect-failure,refused-stream,reset",
         "                num_retries: 2",
-        "                per_try_timeout: 5s",
+        "                per_try_timeout: 30s",
         "                retry_host_predicate:",
         "                  - name: envoy.retry_host_predicates.previous_hosts",
         "                    typed_config:",
@@ -804,12 +806,13 @@ class ServiceRouteStore:
                         {
                             "match": {"prefix": "/"},
                             "route": {
-                                "timeout": "30s",
+                                "timeout": "35s",
                                 # legacy 경로와 같은 재시도(연결 실패·reset 만, 다른 호스트로).
+                                # 시도 제한은 컷오버 쓰기 정지 + PgBouncer 재접속보다 길게(5초면 정지 중 쓰기 504, #140 후속).
                                 "retry_policy": {
                                     "retry_on": "connect-failure,refused-stream,reset",
                                     "num_retries": 2,
-                                    "per_try_timeout": "5s",
+                                    "per_try_timeout": "30s",
                                     "retry_host_predicate": [
                                         {
                                             "name": "envoy.retry_host_predicates.previous_hosts",
