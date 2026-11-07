@@ -31,8 +31,9 @@
 ## B2 세우기
 
 ```bash
-C=gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke; cd replication/k8s/onprem-b2
-kubectl --context $C apply -f 00-namespace.yaml
+# GCP: C=gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke, O=gcp / AWS: C=echo-dev-eks, O=aws
+C=gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke; O=gcp; cd replication/k8s/onprem-b2
+kubectl --context $C apply -f base/00-namespace.yaml
 # B2 고유 비밀번호
 openssl rand -hex 24 | tr -d '\n' | kubectl --context $C -n echo-data-onprem create secret generic onprem-b2-db --from-file=password=/dev/stdin
 # 온프레 복제 비밀번호: SSM 출력을 화면에 찍지 않고 바로 Secret 으로
@@ -40,11 +41,11 @@ CID=$(aws ssm send-command --region ap-northeast-2 --instance-ids <instance_id> 
   --parameters 'commands=["k3s kubectl -n echo-demo get secret demo-db-repl -o jsonpath={.data.password}"]' --query Command.CommandId --output text)
 aws ssm get-command-invocation --region ap-northeast-2 --command-id $CID --instance-id <instance_id> --query StandardOutputContent --output text \
   | tr -d '\n' | base64 -d | kubectl --context $C -n echo-data-onprem create secret generic onprem-repl --from-file=password=/dev/stdin
-kubectl --context $C apply -f 10-postgres.yaml
+kubectl --context $C apply -k $O
 kubectl --context $C -n echo-data-onprem rollout status sts/onprem-pg
 ```
 
-스키마 복사와 구독 (비밀번호는 파드 env 로만 쓴다):
+스키마 복사와 구독 (비밀번호는 파드 env 로만 쓴다). AWS 는 구독 이름을 `echo_onprem_sub_aws` 로 바꾼다:
 
 ```bash
 kubectl --context $C -n echo-data-onprem exec -i onprem-pg-0 -c postgres -- bash -s <<'EOF2'
@@ -63,6 +64,7 @@ EOF2
 - 초기 복사: `demo.seq_write` 5행, `srsubstate=r`
 - 온프레 앱에 쓰기 3건 → B2 반영 확인 0.53초(kubectl 왕복 포함)
 - 발행 쪽 `pg_stat_replication`: `echo_onprem_sub` streaming, replay_lag 약 5ms, 슬롯 밀림 0 bytes
+- AWS 복제본 추가 뒤 쓰기 2건: 온프레·GCP·AWS 모두 10행, replay_lag GCP 약 5ms·AWS 약 36ms, 두 슬롯 밀림 0 bytes
 
 ## 주의
 
