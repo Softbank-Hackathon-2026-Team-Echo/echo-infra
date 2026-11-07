@@ -1,5 +1,5 @@
-# 풀 계층 PgBouncer — 앱과 DB 사이. DB 주소를 직접 모르고 이름 db-writer(같은 네임스페이스 Service)만 본다.
-# 쓰기 담당 전환 = db-writer 하나만 바꾼다(PAUSE → db-writer 변경 → RECONNECT → RESUME). 파드 안 ini 를 sed 로 고치지 않는다.
+# 풀 계층 PgBouncer — 앱과 DB 사이. DB 주소를 직접 모르고 표지판 db-writer.echo-data(ClusterIP, 바뀌지 않음)만 본다.
+# 쓰기 담당 전환 = 표지판 뒤(selector ↔ EndpointSlice)만 바꾼다(PAUSE → 표지판 → RECONNECT → RESUME). 파드 안 ini 를 sed 로 고치지 않는다.
 #
 # DB(echo-data)와 끊은 것:
 #  - 인증: auth_query(DB 함수 pgbouncer_user_lookup·역할 pgbouncer_auth) 대신 자기 Secret 의 auth_file.
@@ -19,7 +19,7 @@ metadata:
 data:
   pgbouncer.ini: |
     [databases]
-    app = host=db-writer.echo-pool.svc.cluster.local port=5432 dbname=app
+    app = host=db-writer.echo-data.svc.cluster.local port=5432 dbname=app
 
     [pgbouncer]
     listen_addr = 0.0.0.0
@@ -33,9 +33,6 @@ data:
     max_prepared_statements = 0
     # 쓰기 담당이 다른 클라우드(인터넷 LB)일 수 있어 서버 쪽은 늘 TLS
     server_tls_sslmode = require
-    # db-writer 를 바꾼 뒤 새 서버 연결이 곧바로 새 주소를 찾게(클러스터 DNS 캐시는 별도, README "DNS 반영 시간")
-    dns_max_ttl = 1
-    dns_nxdomain_ttl = 1
 ---
 apiVersion: v1
 kind: Service

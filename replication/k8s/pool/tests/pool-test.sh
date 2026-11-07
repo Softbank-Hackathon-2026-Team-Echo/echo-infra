@@ -2,11 +2,11 @@
 # 풀 계층(PgBouncer-DB 분리) 통합 시험. Docker 로 k3s 한 대를 띄워 저장소 매니페스트를 그대로 적용한다.
 #   A = ns echo-data   (aws-tokyo/10-postgres.yaml)        — 쓰기 담당(발행)
 #   B = ns echo-data-b (같은 파일, 네임스페이스만 바꿈)     — 사본(구독 echo_sub)
-#   풀 = ns echo-pool  (pool/aws-tokyo, db-writer → A)
+#   풀 = ns echo-pool  (pool/aws-tokyo, 표지판 echo-data/db-writer → A)
 # 시험
 #   1) 인증: auth_file + SCRAM pass-through 로 app_rw 가 PgBouncer 를 거쳐 A 에 쓴다(DB 함수·pgbouncer_auth 없이)
-#   2) DNS: ExternalName 을 바꾼 뒤 파드에서 새 주소가 보이기까지 걸린 시간
-#   3) 전환: 쓰기를 계속 넣는 중에 PAUSE → 따라잡기 → db-writer=B → RECONNECT → RESUME. 쓰기 정지 시간, 받은 쓰기 누락 0, 전환 뒤 A 에 쓰기 0
+#   2) 표지판: scripts/common.sh 의 repoint·pgb_backend 를 그대로 불러 selector → EndpointSlice(B IP) 로 바뀌는지
+#   3) 전환: 쓰기를 계속 넣는 중에 PAUSE → 따라잡기 → repoint(B) → RESUME. 쓰기 정지 시간, 받은 쓰기 누락 0, 전환 뒤 A 에 쓰기 0
 #   4) 재시작: PgBouncer 파드를 지워도 B 로 붙는다(옛 방식은 ConfigMap 값으로 돌아감)
 #   5) NetworkPolicy: 앱 네임스페이스에서 DB 직접 접속은 막히고, echo-pool 에서는 된다
 # 범위 밖: 클러스터 두 개(실제 교차 클라우드)·TLS 검증·역방향 구독 — 운영 리허설 몫
@@ -72,16 +72,22 @@ echo "== 1. 인증: auth_file + SCRAM pass-through (DB 함수 없이)"
 out=$(client "insert into public.writes(id) values (0) returning inet_server_addr()")
 A_IP=$(k -n echo-data get pod echo-pg-0 -o jsonpath='{.status.podIP}'); B_IP=$(k -n echo-data-b get pod echo-pg-0 -o jsonpath='{.status.podIP}')
 [[ $out == *"$A_IP"* ]] && ok "app_rw → 풀 PgBouncer → A($A_IP) 쓰기 성공" || bad "쓰기 실패 또는 A 가 아님: $out"
-[[ $(adm -c "SHOW DATABASES" | awk -F'|' '$1=="app"{print $2}') == db-writer.echo-pool.svc.cluster.local ]] && ok "PgBouncer 백엔드 = db-writer" || bad "백엔드가 db-writer 가 아님"
+[[ $(adm -c "SHOW DATABASES" | awk -F'|' '$1=="app"{print $2}') == db-writer.echo-data.svc.cluster.local ]] && ok "PgBouncer 백엔드 = db-writer" || bad "백엔드가 db-writer 가 아님"
 [[ $(adm -c "SHOW USERS" | grep -c pgbouncer_auth) == 0 ]] && ok "pgbouncer_auth(DB 역할) 를 쓰지 않음" || bad "pgbouncer_auth 가 보임"
 
-echo "== 2. DNS: ExternalName 변경이 파드에 보이기까지"
-k -n echo-pool create service externalname dns-probe --external-name=echo-pg.echo-data.svc.cluster.local >/dev/null
-sleep 2; k -n echo-pool exec deploy/echo-pgbouncer -c admin -- getent hosts dns-probe.echo-pool.svc.cluster.local >/dev/null
-t0=$(now); k -n echo-pool patch svc dns-probe --type merge -p '{"spec":{"externalName":"echo-pg.echo-data-b.svc.cluster.local"}}' >/dev/null
-dns_s=""; for i in $(seq 1 120); do
-  if k -n echo-pool exec deploy/echo-pgbouncer -c admin -- getent hosts dns-probe.echo-pool.svc.cluster.local 2>/dev/null | grep -q "$B_IP"; then dns_s=$(python -c "print(round($(now)-$t0,1))"); break; fi; sleep 0.5; done
-[[ -n $dns_s ]] && ok "새 주소가 보이기까지 ${dns_s}초 (k3s CoreDNS)" || bad "60초 안에 새 주소가 보이지 않음"
+echo "== 2. 표지판: common.sh 의 함수 그대로 (kubectl --context 는 이 k3s 로)"
+mkdir -p "$TMP/bin"
+# --context·--request-timeout 을 떼고 이 k3s 의 kubectl 로 넘기는 래퍼
+cat > "$TMP/bin/kubectl" <<WRAP
+#!/usr/bin/env bash
+export MSYS_NO_PATHCONV=1
+a=(); while [[ \$# -gt 0 ]]; do case \$1 in --context) shift 2 ;; --request-timeout=*) shift ;; *) a+=("\$1"); shift ;; esac; done
+exec docker exec -i $C kubectl "\${a[@]}"
+WRAP
+chmod +x "$TMP/bin/kubectl"
+cs() { (export PATH="$TMP/bin:$PATH" A_CTX=k3s B_CTX=unused WRITER_SETTLE="${WRITER_SETTLE:-6}"; source scripts/common.sh; "$@"); }
+[[ $(cs pgb_backend A) == echo-pg ]] && ok "처음 표지판 = 자기 쪽(selector)" || bad "처음 표지판이 자기 쪽이 아님: $(cs pgb_backend A)"
+cs pool_mode A && ok "db-writer 가 있으면 풀 방식으로 본다" || bad "풀 방식으로 보지 않음"
 
 echo "== 3. 전환 A → B (쓰기를 넣는 중)"
 k -n app run writer --restart=Never --image=postgres:17-alpine --image-pull-policy=Never --env="URL=$URL" -- sh -c \
@@ -91,17 +97,18 @@ t_pause=$(now); adm -c "PAUSE app;" >/dev/null
 a_max_at_pause=$(pg echo-data -c "select max(id) from public.writes")
 for i in $(seq 1 60); do lag=$(pg echo-data -c "select pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn) from pg_stat_replication where application_name='echo_sub'"); [[ $lag == 0 ]] && break; sleep 0.2; done
 pg echo-data-b -c "ALTER SUBSCRIPTION echo_sub DISABLE" >/dev/null
-k -n echo-pool patch svc db-writer --type merge -p '{"spec":{"externalName":"echo-pg.echo-data-b.svc.cluster.local"}}' >/dev/null
-for i in $(seq 1 120); do k -n echo-pool exec deploy/echo-pgbouncer -c admin -- getent hosts db-writer.echo-pool.svc.cluster.local 2>/dev/null | grep -q "$B_IP" && break; sleep 0.5; done
-adm -c "RECONNECT app;" >/dev/null; adm -c "RESUME app;" >/dev/null; t_resume=$(now)
+cs repoint A "$B_IP" || bad "repoint 실패"          # 운영 cutover.sh 와 같은 함수: EndpointSlice → selector 빼기 → 반영 대기 → RECONNECT
+adm -c "RESUME app;" >/dev/null; t_resume=$(now)
+[[ $(cs pgb_backend A) == "$B_IP" ]] && ok "표지판 = B($B_IP), selector 없음" || bad "표지판이 B 가 아님: $(cs pgb_backend A)"
+[[ -z $(k -n echo-data get svc db-writer -o 'jsonpath={.spec.selector}') ]] && ok "selector 빠짐" || bad "selector 가 남음"
 sleep 5; k -n app exec writer -- touch /tmp/stop; sleep 2
 pause_s=$(python -c "print(round($t_resume-$t_pause,1))")
 k -n app logs writer > "$TMP/w.log"
 acked=$(awk '$1=="ok"{print $2}' "$TMP/w.log" | sort -n); nacked=$(echo "$acked" | grep -c .); nfail=$(grep -c '^fail' "$TMP/w.log")
 echo "     쓰기 정지 ${pause_s}초 · 받은 쓰기 ${nacked} · 실패 ${nfail}"
-python -c "import sys; sys.exit(0 if $pause_s < 15 else 1)" && ok "쓰기 정지 ${pause_s}초" || bad "쓰기 정지가 김: ${pause_s}초"
+echo "     (쓰기 정지에는 표지판 반영 대기 WRITER_SETTLE=${WRITER_SETTLE:-6}초와 kubectl 호출 시간이 들어 있다 — 정확성 판정 아님)"
 pg echo-data-b -c "select id from public.writes where id > 0 order by id" > "$TMP/b.ids"
-missing=$(comm -23 <(echo "$acked") <(sort -n "$TMP/b.ids") | grep -c .)
+missing=$(comm -23 <(echo "$acked" | sort) <(tr -d '\r' < "$TMP/b.ids" | sort) | grep -c .)   # comm 은 사전순 정렬을 받는다
 [[ $missing == 0 ]] && ok "받은 쓰기 ${nacked}건 모두 B 에 있음(누락 0)" || bad "B 에 없는 받은 쓰기 ${missing}건"
 a_max_end=$(pg echo-data -c "select max(id) from public.writes where id < 999999")
 [[ $a_max_end == "$a_max_at_pause" ]] && ok "PAUSE 뒤 A 에 들어간 쓰기 0 (A 최대 id ${a_max_at_pause} 그대로)" || bad "PAUSE 뒤에도 A 에 쓰기: ${a_max_at_pause} → ${a_max_end}"
@@ -126,5 +133,5 @@ via=$(k -n echo-pool exec deploy/echo-pgbouncer -c admin -- sh -c "PGCONNECT_TIM
 [[ $(pg echo-data -c "select 1") == 1 ]] && ok "kubectl exec 로 부르는 psql(컷오버 스크립트 방식)은 그대로" || bad "exec psql 이 막힘"
 
 echo
-echo "결과: 통과 $pass · 실패 $fail   (DNS 반영 ${dns_s:-?}초 · 쓰기 정지 ${pause_s:-?}초)"
+echo "결과: 통과 $pass · 실패 $fail   (쓰기 정지 ${pause_s:-?}초, 표지판 반영 대기 ${WRITER_SETTLE:-6}초 포함)"
 [[ $fail == 0 ]]

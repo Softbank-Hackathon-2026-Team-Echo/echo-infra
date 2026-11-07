@@ -25,6 +25,12 @@ k apply -f - < manifests/echo-data-rbac.yaml >/dev/null
 sed -e "s|__CUTOVER_GSA__|echo-dev-cutover@example.iam.gserviceaccount.com|" -e "s|__CUTOVER_IMAGE__|$IMG|" manifests/echo-ops.yaml | k apply -f - >/dev/null
 k apply -f - < manifests/gke-binding.yaml >/dev/null
 k apply -f - < manifests/eks-binding.yaml >/dev/null
+# 풀 계층(replication/k8s/pool): echo-pool 네임스페이스가 먼저 있어야 한다
+k create namespace echo-pool >/dev/null
+k apply -f - < manifests/echo-pool-rbac.yaml >/dev/null
+k apply -f - < manifests/eks-pool-binding.yaml >/dev/null
+sed -e "s|__CUTOVER_GSA__|echo-dev-cutover@example.iam.gserviceaccount.com|" manifests/gke-customer-binding.yaml | k apply -f - >/dev/null
+sed -e "s|__CUTOVER_GSA__|echo-dev-cutover@example.iam.gserviceaccount.com|" manifests/gke-customer-pool-binding.yaml | k apply -f - >/dev/null
 sleep 3
 
 echo "== 1. RBAC — 컷오버 Job 신원 (GKE: KSA echo-ops/echo-cutover)"
@@ -46,6 +52,21 @@ canI yes create pods --subresource=exec -n echo-data --as=echo-cutover-role --as
 canI no  get secrets -n echo-data --as=echo-cutover-role --as-group=echo-cutover
 canI no  create pods --subresource=exec -n kube-system --as=echo-cutover-role --as-group=echo-cutover
 canI no  get nodes --as=echo-cutover-role --as-group=echo-cutover
+
+echo "== 2-1. RBAC — 풀 방식(표지판 db-writer · echo-pool 관리 콘솔): EKS 그룹 · 고객 GKE GSA"
+for who in "--as=echo-cutover-role --as-group=echo-cutover" "--as=echo-dev-cutover@example.iam.gserviceaccount.com"; do
+  # shellcheck disable=SC2086
+  canI yes patch services/db-writer -n echo-data $who
+  canI no  patch services/echo-pg -n echo-data $who
+  canI yes create endpointslices.discovery.k8s.io -n echo-data $who
+  canI yes delete endpointslices.discovery.k8s.io/db-writer-manual -n echo-data $who
+  canI yes list endpointslices.discovery.k8s.io -n echo-data $who
+  canI no  delete endpointslices.discovery.k8s.io -n echo-pool $who
+  canI yes create pods --subresource=exec -n echo-pool $who
+  canI yes get deployments/echo-pgbouncer -n echo-pool $who
+  canI no  get secrets -n echo-pool $who
+  canI no  patch services/echo-pgbouncer -n echo-pool $who
+done
 
 echo "== 3. RBAC — echo-was (Job 만들기·읽기만)"
 W=system:serviceaccount:echo-was:echo-was
