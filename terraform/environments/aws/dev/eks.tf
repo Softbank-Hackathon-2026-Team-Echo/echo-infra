@@ -150,6 +150,16 @@ resource "aws_eks_addon" "this" {
   cluster_name = aws_eks_cluster.this.name
   addon_name   = each.value
 
+  # #140: 노드는 사설 서브넷 + NAT 1개라 노드 SNAT 이 필요 없다. 노드 SNAT(기본)을 켜 두면
+  # 보조 ENI 에 붙은 파드가 "ClusterIP → VPC 밖 IP 끝점"(db-writer-manual = 서울 B LB)으로 보낼 때
+  # kube-proxy DNAT 가 nat PREROUTING 에서 먼저 끝나 CNI connmark(0x80)가 안 붙고, 보조 ENI 로
+  # 주 ENI 주소(SNAT)를 달고 나가 VPC 가 버린다(SYN 응답 없음 → PgBouncer connect timeout 15s).
+  # 외부 SNAT 으로 두면 파드 IP 그대로 자기 ENI → NAT(공인 IP 18.180.171.76 그대로)로 나간다.
+  # 운영에는 11/8 04:17 KST 에 aws eks update-addon 으로 같은 값을 먼저 넣었다(plan 미실행).
+  configuration_values = each.value == "vpc-cni" ? jsonencode({
+    env = { AWS_VPC_K8S_CNI_EXTERNALSNAT = "true" }
+  }) : null
+
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
 
