@@ -120,6 +120,28 @@ rm -f k.pem k.pub sealed.txt
 
 확인: `curl https://<K3S_API_HOST>/version` → 401(토큰 없음, 창구까지 닿음). 토큰을 붙인 `GET /api/v1/namespaces/kube-system` 은 200, `kubectl --as=system:serviceaccount:echo-system:echo-executor create ns x` 는 정책으로 거절.
 
+## 앱 DB 계정 (슈퍼유저 대신 demo_app)
+
+`demo` 는 postgres 이미지가 만든 부트스트랩 슈퍼유저다. 앱이 이 계정으로 붙으면 앱이나 앱 Secret 을 읽을 수 있는 실행기가 뚫렸을 때 DB 파드 안 명령 실행(`COPY ... TO PROGRAM`)과 복제 비밀번호 열람까지 이어진다. `onprem/app-db-role.sh` 가 앱 전용 일반 계정 `demo_app` 을 만든다. `install.sh` 밖이고, 기기에서 한 번 돌린다.
+
+| 바뀌는 것 | 그대로인 것 |
+|---|---|
+| 역할 `demo_app`(NOSUPERUSER), 비밀번호 Secret `echo-demo/demo-db-app` | PostgreSQL·PgBouncer 의 `demo`(PgBouncer `auth_user`) |
+| `demo`·`gcpcopy` DB 의 사용자 스키마·표 소유자 → `demo_app` (앱의 스키마 맞춤이 표 소유자 권한을 요구) | 발행·구독, `replication-source.sh`, `replication/k8s/onprem-b2/scripts/*` (모두 `demo` 로 돈다) |
+| `echo-demo/demo-app` 의 DATABASE_URL (Secret `demo-db` 의 `database-url`) + 재시작 | `public` 스키마와 그 안 함수 |
+
+```bash
+# 1) 기기에서 (SSM Run Command 도 같다)
+sudo bash onprem/app-db-role.sh
+# 2) echo-was 가 배포한 앱: 서비스 환경 변수 DATABASE_URL 의 사용자·비밀번호만 바꾼다(호스트·DB 이름은 그대로).
+#    postgresql://demo_app:<Secret echo-demo/demo-db-app 의 password>@demo-pgbouncer.echo-demo.svc.cluster.local:6432/<demo|gcpcopy>
+#    바꾼 뒤 echo-was 에서 다시 배포하면 앱 네임스페이스 Secret 이 새 값으로 바뀐다.
+# 3) 확인: 앱 Secret 의 사용자 이름만 본다(비밀번호는 찍지 않는다)
+sudo k3s kubectl -n <앱 네임스페이스> get secret <앱>-env -o jsonpath='{.data.DATABASE_URL}' | base64 -d | sed -E 's#^[a-z+]+://([^:@/]+).*#\1#'
+```
+
+되돌리기: 앱 DATABASE_URL 을 `demo` 로 되돌린 뒤, DB 마다 `ALTER SCHEMA … OWNER TO demo; ALTER TABLE … OWNER TO demo;` 를 같은 목록으로 돌린다. `demo_app` 은 `REASSIGN OWNED BY demo_app TO demo; DROP OWNED BY demo_app; DROP ROLE demo_app;` 로 지운다.
+
 ## 한계·다음 이슈
 
 - **고정 진입점(Envoy)에 세 번째 갈래로 붙이기는 #13 몫이다.** Envoy 는 지금 `{서비스}.echoport.uk` Host 를 그대로 넘기는데, 온프레는 터널(Cloudflare)을 거쳐야 닿는다. Envoy 업스트림을 `demo-onprem-…echoport.uk:443` 으로 두면 TLS(SNI)와 Host 바꾸기(`host_rewrite_literal`)가 필요하다. 그대로 `*.echoport.uk` 를 보내면 와일드카드 레코드가 Envoy 자신을 가리켜 고리가 생긴다. 온프레 Ingress 가 고정 Host 도 받게 하는 방법도 있다.
