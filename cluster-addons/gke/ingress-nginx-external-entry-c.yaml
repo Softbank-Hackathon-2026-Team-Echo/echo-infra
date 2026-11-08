@@ -1,15 +1,21 @@
 # 인프라 17: AWS 서울 진입점 c 가 GKE 공유 문(ingress-nginx)에 닿는 길. specs/infra-17-second-provider-entrypoint.md
-# 기존 내부 LB(10.60.0.8, 진입점 a·b 가 씀)는 그대로 두고, 같은 nginx 파드 앞에 **외부** L4 LB 를 하나 더 둔다.
+# 같은 nginx 파드 앞에 **외부** L4 LB 를 하나 둔다(진입점 a·b 는 내부 LB 를 쓴다).
 # 받는 곳은 c 의 EIP/32 하나뿐(loadBalancerSourceRanges → GKE 가 그 출처만 여는 방화벽을 만든다). 앱에 인증이 없어 인터넷 전체에 열지 않는다.
 # VPN·인터커넥트는 비용·시간이 커서 쓰지 않는다(SPEC 4.3).
 #
-# 적용(SPEC 7절 적용 절차 3단계 (c), 저장소 루트에서): 아래 203.0.113.10/32(문서용 예시 주소)를 aws/dev 출력 entrypoint_c_ip/32 로 바꾼 뒤
-#   대상은 공유 ingress-nginx(내부 LB 10.60.0.8)가 있는 echo-dev-gke 다. 고객 클러스터(echo-dev-customer-gke) 아님.
-#   kubectl --context gke_team-echo-final_asia-northeast3-a_echo-dev-gke -n ingress-nginx get svc ingress-nginx-controller   # 10.60.0.8 이어야 맞는 클러스터
-#   kubectl --context gke_team-echo-final_asia-northeast3-a_echo-dev-gke apply -f cluster-addons/gke/ingress-nginx-external-entry-c.yaml
-#   kubectl --context gke_team-echo-final_asia-northeast3-a_echo-dev-gke -n ingress-nginx get svc ingress-nginx-entry-c   # EXTERNAL-IP → entrypoint_c_upstreams.gcp (적용 절차 4단계)
-# 되돌리기(SPEC 8절 5): kubectl --context gke_team-echo-final_asia-northeast3-a_echo-dev-gke delete -f cluster-addons/gke/ingress-nginx-external-entry-c.yaml (LB·방화벽이 같이 지워진다)
-# 인프라 16(고객 전용 클러스터)으로 ingress-nginx 를 옮기면 이 Service 도 그 클러스터에 적용한다.
+# 2026-11-07 23:12 KST 이전(인프라 16 후속): 대상 클러스터를 관제탑 echo-dev-gke → **고객 클러스터 echo-dev-customer-gke** 로 옮겼다.
+#   c 의 UPSTREAMS gcp=34.47.94.41:80 을 바꾸지 않으려고, 임시 IP 였던 34.47.94.41 을 정적 주소 `echo-dev-entry-c-gke`
+#   (asia-northeast3, PREMIUM, 손으로 만듦 — docs/manual-resources.md)로 승격한 뒤 이 Service 가 loadBalancerIP 로 받는다.
+#   기록: docs/rehearsals/2026-11-07-entry-c-customer-migration.md
+#   주의: 정적 주소 이름을 GKE LB 이름(a + 31자 hex)과 같게 짓지 않는다 — GKE 정리 로직이 LB 이름과 같은 주소를 지운다.
+#
+# 적용(저장소 루트에서, 정적 주소가 있는지 먼저 확인):
+#   gcloud compute addresses describe echo-dev-entry-c-gke --region asia-northeast3 --format='value(address,status)'   # 34.47.94.41 RESERVED(또는 IN_USE)
+#   kubectl --context gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke -n ingress-nginx get svc ingress-nginx-controller   # 10.63.0.14 이어야 맞는 클러스터
+#   kubectl --context gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke apply -f cluster-addons/gke/ingress-nginx-external-entry-c.yaml
+#   kubectl --context gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke -n ingress-nginx get svc ingress-nginx-entry-c   # EXTERNAL-IP 34.47.94.41
+# 되돌리기: 같은 컨텍스트로 delete -f (LB·방화벽만 지워지고 정적 주소 34.47.94.41 은 RESERVED 로 남는다).
+#   관제탑으로 되돌릴 때는 고객 쪽을 지운 뒤 같은 파일을 echo-dev-gke 컨텍스트로 apply 한다(내용 같음, IP 같음).
 apiVersion: v1
 kind: Service
 metadata:
@@ -20,9 +26,10 @@ metadata:
     managed-by: jimin-manual
 spec:
   type: LoadBalancer
+  loadBalancerIP: 34.47.94.41 # 정적 주소 echo-dev-entry-c-gke (= aws/dev entrypoint_c_upstreams.gcp 의 IP)
   externalTrafficPolicy: Local # 클라이언트 IP(c 의 EIP) 보존 — 내부 LB 와 같은 설정
   loadBalancerSourceRanges:
-    - 203.0.113.10/32 # ← 진입점 c EIP/32 로 바꾼다 (aws/dev 출력 entrypoint_c_ip)
+    - 3.39.160.158/32 # 진입점 c EIP/32 (aws/dev 출력 entrypoint_c_ip)
   selector:
     app.kubernetes.io/name: ingress-nginx
     app.kubernetes.io/instance: ingress-nginx

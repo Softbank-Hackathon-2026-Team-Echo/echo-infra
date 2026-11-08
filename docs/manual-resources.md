@@ -71,6 +71,13 @@ curl -sS -X POST "https://api.cloudflare.com/client/v4/zones/<영역 id>/dns_rec
 | 풀 계층(PgBouncer-DB 분리, #114) — 3단계까지(11/7) | EKS `echo-dev-eks` · GKE `echo-dev-customer-gke` ns `echo-pool` + `echo-data/db-writer` | `replication/k8s/pool/{aws-tokyo,gcp-seoul}` · `replication/cutover-job/deploy/{aws-tokyo,gcp-seoul-customer}{,-pool}` | `replication/k8s/pool/README.md` "옮기는 순서" 3단계 |
 | Secret `echo-pool/echo-pgbouncer-secret`(app_rw SCRAM 검증자 + 관리 계정) | EKS · 고객 GKE | 파일 없음(값은 A 의 `pg_authid` 와 새로 만든 관리 비밀번호) | `replication/k8s/pool/base/secret.example.yaml` 의 명령 |
 | 서울 표지판 뒤 EndpointSlice `echo-data/db-writer-manual`(도쿄 A NLB IP) | GKE `echo-dev-customer-gke` | 파일 없음(주소는 그때 NLB 이름을 IP 로 풀어 넣는다) | `replication/k8s/scripts/pool-point.sh B "$A_HOST"` (컷오버·롤백 때는 스크립트가 바꾼다) |
+| Service `ingress-nginx/ingress-nginx-entry-c`(진입점 c 전용 외부 L4 LB **34.47.94.41**, 출처 `3.39.160.158/32` 만) — 11/7 23:12 관제탑 `echo-dev-gke` 에서 옮김 | GKE **`echo-dev-customer-gke`** ns `ingress-nginx` | `cluster-addons/gke/ingress-nginx-external-entry-c.yaml`(`loadBalancerIP` = 아래 정적 주소) | 파일 머리말의 apply 명령. GKE 가 LB·방화벽(`k8s-fw-<LB 이름>`·`-deny`·`-http-hc`)을 만든다 |
+
+## GCP 에 손으로 만든 주소 (Terraform 밖)
+
+| 자원 | 값 | 왜 손으로 | 다시 만들 때 |
+|---|---|---|---|
+| 정적 외부 주소 `echo-dev-entry-c-gke` (asia-northeast3, EXTERNAL, PREMIUM) — 11/7 23:11 | `34.47.94.41`. 관제탑 Service 가 쓰던 **임시** IP 를 승격했다. 진입점 c 의 `UPSTREAMS gcp=34.47.94.41:80`(aws/dev `entrypoint_c_upstreams`, S3 `settings.env`)가 이 IP 를 가리킨다 | 클러스터를 옮겨도 c 설정·Terraform(aws/dev)을 바꾸지 않으려고. Service 를 지워도 IP 가 남는다 | `gcloud compute addresses create echo-dev-entry-c-gke --addresses=<IP> --region=asia-northeast3`(사용 중 임시 IP 승격, 끊김 없음). 이 IP 를 잃으면 새 IP 로 c 의 UPSTREAMS 를 바꿔야 한다. **이름을 GKE LB 이름(a+31자 hex)으로 짓지 않는다** — GKE 정리 로직이 LB 이름과 같은 주소를 지운다. Service 를 영구히 없애면 이 주소도 `addresses delete` 해야 미사용 IP 과금이 멈춘다 |
 
 ## GCP IAM·VM 메타데이터를 손으로 바꾼 것 (인프라 16 2단계, 11/7 — Terraform 반영 필요)
 
