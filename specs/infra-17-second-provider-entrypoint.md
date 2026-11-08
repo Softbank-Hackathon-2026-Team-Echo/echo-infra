@@ -20,9 +20,9 @@
 
 | 무엇 | 값 | 출처 |
 |---|---|---|
-| 진입점 a | `echo-dev-entry`, GCP asia-northeast3-a, e2-small, Debian 12, 공인 34.158.202.103 | `gcp/dev/entrypoint.tf` |
-| 진입점 b | `echo-dev-entry-b`, 존 b (`entrypoint_secondary_zones = ["b"]`), 8.230.16.205 | 같음 |
-| 앞단 | 리전 외부 패스스루 NLB `entry_lb`(34.158.197.107, 80), 헬스체크 `/__entry/healthz` 2초·2회, 평소 a · a 장애 시 b(장애 조치 백엔드) | 같음, 인프라 5.3 |
+| 진입점 a | `echo-dev-entry`, GCP asia-northeast3-a, e2-small, Debian 12, 공인 <진입점 a 공인 IP> | `gcp/dev/entrypoint.tf` |
+| 진입점 b | `echo-dev-entry-b`, 존 b (`entrypoint_secondary_zones = ["b"]`), <진입점 b 공인 IP> | 같음 |
+| 앞단 | 리전 외부 패스스루 NLB `entry_lb`(<진입점 NLB IP>, 80), 헬스체크 `/__entry/healthz` 2초·2회, 평소 a · a 장애 시 b(장애 조치 백엔드) | 같음, 인프라 5.3 |
 | VM 안 | startup 스크립트(`entrypoint-startup.sh.tftpl`)가 `entrypoint/` 파일을 메타데이터에서 `/opt/entrypoint` 에 쓰고 `docker compose up -d --build`. 컨테이너: Envoy :80 · weights-api :8080 · journal :8082(관리) · Prometheus :9090 · Grafana :3000 | `entrypoint/docker-compose.yml` |
 | 가중치 | weights-api 가 Envoy 파일 xDS(`routes.yaml`)를 쓴다. **echo-was 는 a 만 PUT**(내부 주소 `http://<a 내부 IP>:8080`). **b 는 a 에서 당긴다**: `SYNC_FROM=http://<a 내부 IP>:8080` → 2초마다 `GET /weights`(Bearer, a·b 같은 토큰). a 가 죽으면 b 는 마지막 값 유지 | `weights-api/app.py` `sync_loop` |
 | 토큰 | 가중치 토큰·Grafana·remote write·journal 토큰은 a 가 첫 부팅 때 만들어 GCP Secret Manager `echo-dev-entry-*` 에 넣고, b 는 같은 값을 읽는다 | startup 스크립트 3절 |
@@ -36,7 +36,7 @@
 ```text
 손님 ─▶ Cloudflare (프록시, *.echoport.uk)
           └─ Load Balancer *.echoport.uk  (steering: Off - Failover)
-               ├─ 풀 1 gcp-entry (우선) : 34.158.197.107:80  GCP NLB ─▶ a (장애 시 b)
+               ├─ 풀 1 gcp-entry (우선) : <진입점 NLB IP>:80  GCP NLB ─▶ a (장애 시 b)
                └─ 풀 2 aws-entry-c      : <c EIP>:80        AWS 서울 EC2 c
                                             │ 같은 Envoy·weights-api·Prometheus·Grafana (journal 꺼짐)
                                             ├─ aws ─▶ 도쿄 닻 ALB :80  (inbound-cidrs 에 c EIP 추가)
@@ -64,7 +64,7 @@
 
 | 안 | 어떻게 | 판단 |
 |---|---|---|
-| **A. c 가 a 에서 당김 (채택)** | `SYNC_FROM=http://34.158.202.103:8080`(a 공인 IP). GCP 방화벽 `entry_weights_sync`(새 변수 `entrypoint_weights_sync_cidrs`, 기본 빈 값)로 c EIP/32 → 8080 하나만 연다 | 코드 변경 0(weights-api 그대로), echo-was 변경 0. b 와 똑같이 a 가 죽으면 마지막 값 유지 |
+| **A. c 가 a 에서 당김 (채택)** | `SYNC_FROM=http://<진입점 a 공인 IP>:8080`(a 공인 IP). GCP 방화벽 `entry_weights_sync`(새 변수 `entrypoint_weights_sync_cidrs`, 기본 빈 값)로 c EIP/32 → 8080 하나만 연다 | 코드 변경 0(weights-api 그대로), echo-was 변경 0. b 와 똑같이 a 가 죽으면 마지막 값 유지 |
 | B. echo-was 가 a·c 둘 다 PUT | 실행기가 진입점 목록을 돌며 PUT | echo-was 저장소 변경 + 부분 실패(한쪽만 바뀜) 처리 필요. 밤 범위·시간 초과 |
 | C. 가중치 저장소 분리(공용 KV) | 진입점 셋이 한 저장소를 봄 | 규모가 커질 때의 답(README 5.1 한계). 지금은 과함 |
 
@@ -89,7 +89,7 @@
 | 항목 | 값 | 이유 |
 |---|---|---|
 | 호스트 | `*.echoport.uk` (프록시, 주황 구름) | 기존 `*` A 레코드와 **같은 구체성이면 LB 가 우선**한다(Cloudflare 문서 "DNS records for load balancing" Scenario 3). 더 구체적인 레코드(`api`·`app`·`*.gcp-seoul`·`*.aws-tokyo`·온프레 터널 CNAME)는 그대로 그 레코드가 이긴다. **A 레코드는 지우지 않는다** — LB 를 끄면 그 레코드가 다시 응답(되돌리기 1단계) |
-| 풀 1 `echo-entry-gcp` | 엔드포인트 `34.158.197.107`(GCP 출력 `entrypoint_lb_ip`), 가중치 1 | 평소 전부 여기 — echo-was 의 가중치·판정·지표가 a 를 보므로 숫자가 맞는다(5.3 과 같은 이유) |
+| 풀 1 `echo-entry-gcp` | 엔드포인트 `<진입점 NLB IP>`(GCP 출력 `entrypoint_lb_ip`), 가중치 1 | 평소 전부 여기 — echo-was 의 가중치·판정·지표가 a 를 보므로 숫자가 맞는다(5.3 과 같은 이유) |
 | 풀 2 `echo-entry-aws-c` | 엔드포인트 `<c EIP>`(AWS 출력 `entrypoint_c_ip`), 가중치 1 | 풀 1 이 Critical 일 때만 |
 | 스티어링 | **Off - Failover**, 순서 풀 1 → 풀 2, 폴백 풀 = 풀 2 | 비엔터프라이즈 기본 정책. 풀 1 이 돌아오면 다시 풀 1(페일백) |
 | 모니터 | HTTP, 포트 80, `GET /__entry/healthz`, 기대 `200`, 본문 `ok`, 간격 **60초**(Free·Pro 최솟값), 타임아웃 2초, 재시도 1, 헬스 지역 **동북아 1곳** | `/__entry/healthz` 는 Envoy 가 Host 와 무관하게 바로 200 을 준다(진입점 자체 생존). 지역·간격을 늘리면 유료 옵션이 붙는다 — 화면에 추가 요금이 보이면 멈추고 묻는다 |
@@ -182,13 +182,13 @@ aws eks update-kubeconfig --region ap-northeast-1 --name echo-dev-eks --alias "$
 
 | 단계 | 할 일 | 명령·화면 | 확인 | 시간 |
 |---|---|---|---|---|
-| 0 | 승인·시각·기준 확인 | 지민 적용 승인 + 요금(9절). loadgen·이전 안 도는지. `terraform -chdir=$AWS_TF init -input=false -backend-config=$W/backend-aws-dev.hcl` → `terraform -chdir=$AWS_TF plan -input=false -var-file=$BASE` · (M5) `kubectl --context $GKE -n ingress-nginx get svc ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'` · 8절 1-a 명령으로 현재 `*` A 레코드 값을 읽어 `A_BEFORE` 로 적어 둔다 | AWS plan **No changes** · GKE 출력 `10.60.0.8`(다르면 다른 클러스터 — 멈춤) · `A_BEFORE` = `34.158.197.107`(GCP NLB, GCP 출력 `entrypoint_lb_ip`). 다르면 멈추고 지민에게 묻는다 | 5분 |
+| 0 | 승인·시각·기준 확인 | 지민 적용 승인 + 요금(9절). loadgen·이전 안 도는지. `terraform -chdir=$AWS_TF init -input=false -backend-config=$W/backend-aws-dev.hcl` → `terraform -chdir=$AWS_TF plan -input=false -var-file=$BASE` · (M5) `kubectl --context $GKE -n ingress-nginx get svc ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'` · 8절 1-a 명령으로 현재 `*` A 레코드 값을 읽어 `A_BEFORE` 로 적어 둔다 | AWS plan **No changes** · GKE 출력 `10.60.0.8`(다르면 다른 클러스터 — 멈춤) · `A_BEFORE` = `<진입점 NLB IP>`(GCP NLB, GCP 출력 `entrypoint_lb_ip`). 다르면 멈추고 지민에게 묻는다 | 5분 |
 | 1 | 토큰 파라미터 | (M5→M1 파이프) `gcloud secrets versions access latest --secret=echo-dev-entry-weights-token --project team-echo-final \| aws ssm put-parameter --region ap-northeast-2 --name /echo/dev/entry-c/weights-token --type SecureString --value file:///dev/stdin` (값을 화면에 찍지 않는다) | `aws ssm describe-parameters --region ap-northeast-2 --parameter-filters Key=Name,Values=/echo/dev/entry-c/weights-token --query 'length(Parameters)'` = 1 | 2분 |
 | 2 | EIP 먼저 | `printf 'entrypoint_c_enabled = true\n' > $W/entry-c.tfvars` → `terraform -chdir=$AWS_TF plan -input=false -var-file=$BASE -var-file=$W/entry-c.tfvars -target='aws_eip.entry_c[0]' -out=$W/c-eip.tfplan` → `terraform -chdir=$AWS_TF apply $W/c-eip.tfplan` → `C_IP=$(terraform -chdir=$AWS_TF output -raw entrypoint_c_ip); echo $C_IP` | plan **1 add, 0 change, 0 destroy** · IP 1개 | 3분 |
 | 3 | 받는 쪽 열기 | (a) GCP 방화벽: `terraform -chdir=$GCP_TF init -input=false -backend-config=~/.hermes/cache/scratch/echo_orch/tfplan16/backend.hcl` → `terraform -chdir=$GCP_TF plan -input=false -var project_id=team-echo-final -var "entrypoint_weights_sync_cidrs=[\"$C_IP/32\"]" -target='google_compute_firewall.entry_weights_sync[0]' -out=$W/c-fw.tfplan` → `terraform -chdir=$GCP_TF apply $W/c-fw.tfplan` (b) 닻 ALB: `cluster-addons/eks/anchor-ingress.yaml` 의 `alb.ingress.kubernetes.io/inbound-cidrs` 값 끝에 `,$C_IP/32` 를 더한다 → `kubectl --context $EKS apply -f cluster-addons/eks/anchor-ingress.yaml` (c) GKE 외부 LB: `sed -i '' "s#203.0.113.10/32#$C_IP/32#" cluster-addons/gke/ingress-nginx-external-entry-c.yaml` → (M5) `kubectl --context $GKE apply -f cluster-addons/gke/ingress-nginx-external-entry-c.yaml` → `kubectl --context $GKE -n ingress-nginx get svc ingress-nginx-entry-c -w` 로 EXTERNAL-IP 대기 → `GKE_EXT=<EXTERNAL-IP>` | (a) plan **1 add, 0 change, 0 destroy** (b) `kubectl --context $EKS -n echo-apps-anchor get ingress anchor -o jsonpath='{.metadata.annotations.alb\.ingress\.kubernetes\.io/inbound-cidrs}'` 에 `$C_IP/32` (c) EXTERNAL-IP 1개, 기존 `ingress-nginx-controller` 는 `10.60.0.8` 그대로 | 15분 |
-| 4 | c 만들기 | `ALB=$(kubectl --context $EKS -n echo-apps-anchor get ingress anchor -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')` → `printf 'entrypoint_c_enabled = true\nentrypoint_c_sync_from = "http://34.158.202.103:8080"\nentrypoint_c_upstreams = { aws = "%s:80", gcp = "%s:80" }\n' "$ALB" "$GKE_EXT" > $W/entry-c.tfvars` → `terraform -chdir=$AWS_TF plan -input=false -var-file=$BASE -var-file=$W/entry-c.tfvars -out=$W/c.tfplan` → `terraform -chdir=$AWS_TF apply $W/c.tfplan` | plan **26 add, 0 change, 0 destroy**(2단계 EIP 뒤. 다른 수치면 멈춘다) · `terraform -chdir=$AWS_TF output -raw entrypoint_c_instance_id` | 10분 |
+| 4 | c 만들기 | `ALB=$(kubectl --context $EKS -n echo-apps-anchor get ingress anchor -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')` → `printf 'entrypoint_c_enabled = true\nentrypoint_c_sync_from = "http://<진입점 a 공인 IP>:8080"\nentrypoint_c_upstreams = { aws = "%s:80", gcp = "%s:80" }\n' "$ALB" "$GKE_EXT" > $W/entry-c.tfvars` → `terraform -chdir=$AWS_TF plan -input=false -var-file=$BASE -var-file=$W/entry-c.tfvars -out=$W/c.tfplan` → `terraform -chdir=$AWS_TF apply $W/c.tfplan` | plan **26 add, 0 change, 0 destroy**(2단계 EIP 뒤. 다른 수치면 멈춘다) · `terraform -chdir=$AWS_TF output -raw entrypoint_c_instance_id` | 10분 |
 | 5 | c 확인 (T1·T2) | 부팅·이미지 빌드 5~8분 대기 → `aws ssm start-session --region ap-northeast-2 --target $(terraform -chdir=$AWS_TF output -raw entrypoint_c_instance_id)` → `journalctl -u echo-entry-c-sync` 에 `완료`, 6절 T1·T2 | healthz ok, aws·gcp healthy, 가중치 = a | 10분 |
-| 6 | Cloudflare LB (화면) | ① 대시보드 → 계정 → **Load Balancing** → Enable(결제 화면 금액 $5/월 확인, 추가 옵션 선택 안 함) ② **Monitors** → Create: HTTP · 포트 80 · 경로 `/__entry/healthz` · 고급: 간격 60 · 타임아웃 2 · 재시도 1 · 기대 코드 200 · 본문 `ok` ③ **Pools** → Create `echo-entry-gcp`: 엔드포인트 `34.158.197.107`, 모니터 ②, 헬스 지역 동북아 → Create `echo-entry-aws-c`: 엔드포인트 `$C_IP`, 같은 모니터·지역 ④ 영역 `echoport.uk` → **Traffic → Load Balancing → Create load balancer**: 호스트 `*`(=`*.echoport.uk`), 프록시 켬, 풀 순서 gcp → aws-c, 폴백 aws-c, 스티어링 Off(Failover), 세션 고정 끔 → Save ⑤ 기존 `*` A 레코드는 **그대로 둔다** | 풀 2개 Healthy, LB Healthy, `curl -s -o /dev/null -w '%{http_code}\n' https://entry-check.echoport.uk/__entry/healthz` = 200(트래픽 a) | 15분 |
+| 6 | Cloudflare LB (화면) | ① 대시보드 → 계정 → **Load Balancing** → Enable(결제 화면 금액 $5/월 확인, 추가 옵션 선택 안 함) ② **Monitors** → Create: HTTP · 포트 80 · 경로 `/__entry/healthz` · 고급: 간격 60 · 타임아웃 2 · 재시도 1 · 기대 코드 200 · 본문 `ok` ③ **Pools** → Create `echo-entry-gcp`: 엔드포인트 `<진입점 NLB IP>`, 모니터 ②, 헬스 지역 동북아 → Create `echo-entry-aws-c`: 엔드포인트 `$C_IP`, 같은 모니터·지역 ④ 영역 `echoport.uk` → **Traffic → Load Balancing → Create load balancer**: 호스트 `*`(=`*.echoport.uk`), 프록시 켬, 풀 순서 gcp → aws-c, 폴백 aws-c, 스티어링 Off(Failover), 세션 고정 끔 → Save ⑤ 기존 `*` A 레코드는 **그대로 둔다** | 풀 2개 Healthy, LB Healthy, `curl -s -o /dev/null -w '%{http_code}\n' https://entry-check.echoport.uk/__entry/healthz` = 200(트래픽 a) | 15분 |
 | 7 | 적용 시험 T3·T6 | 6절 표(T4·T5 는 하지 않는다 — 6.1) | T3 풀 2개 Healthy·트래픽 풀 1, T6 타임아웃 | 10분 |
 | 8 | 기록 | `docs/rehearsals/2026-11-07-entry-second-provider.md`, `docs/design-infra.md` 3·7·10절, `docs/manual-resources.md`(Cloudflare LB·모니터·풀, GKE Service, SSM 파라미터), 3(b)(c) 의 실제 IP 를 후속 PR 로 커밋, 이슈 댓글 | — | 10분 |
 
@@ -199,8 +199,8 @@ aws eks update-kubeconfig --region ap-northeast-1 --name echo-dev-eks --alias "$
 | 순서 | 할 일 | 명령·화면 | 확인 | 시간 |
 |---|---|---|---|---|
 | 1 | Cloudflare LB 끄기 | 대시보드 → 영역 `echoport.uk` → Traffic → Load Balancing → LB `*.echoport.uk` **Disable** | LB 상태 Disabled | 1분 |
-| 1-a | 현재 `*` A 레코드가 GCP NLB 인지 확인 | (M5) `CF_TOKEN=$(gcloud secrets versions access latest --secret=echo-dev-echo-was-cloudflare-dns-token --project team-echo-final)` → `ZONE=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/zones?name=echoport.uk" \| jq -r '.result[0].id')` → `curl -sS -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?type=A&name=%2A.echoport.uk" \| jq -r '.result[] \| "\(.id) \(.content) proxied=\(.proxied)"'` | `<레코드 id> 34.158.197.107 proxied=true` 한 줄이면 1-b 건너뜀 | 1분 |
-| 1-b | 다르면 원복 | `curl -sS -X PATCH -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records/<1-a 의 레코드 id>" --data '{"content":"34.158.197.107","proxied":true}' \| jq .success` → 1-a 다시 → `unset CF_TOKEN` | `true`, 1-a 가 `34.158.197.107 proxied=true` | 1분 |
+| 1-a | 현재 `*` A 레코드가 GCP NLB 인지 확인 | (M5) `CF_TOKEN=$(gcloud secrets versions access latest --secret=echo-dev-echo-was-cloudflare-dns-token --project team-echo-final)` → `ZONE=$(curl -sS -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/zones?name=echoport.uk" \| jq -r '.result[0].id')` → `curl -sS -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?type=A&name=%2A.echoport.uk" \| jq -r '.result[] \| "\(.id) \(.content) proxied=\(.proxied)"'` | `<레코드 id> <진입점 NLB IP> proxied=true` 한 줄이면 1-b 건너뜀 | 1분 |
+| 1-b | 다르면 원복 | `curl -sS -X PATCH -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records/<1-a 의 레코드 id>" --data '{"content":"<진입점 NLB IP>","proxied":true}' \| jq .success` → 1-a 다시 → `unset CF_TOKEN` | `true`, 1-a 가 `<진입점 NLB IP> proxied=true` | 1분 |
 | 1-c | 손님 경로 복구 확인 | `dig +short entry-check.echoport.uk`(프록시라 Cloudflare IP 가 보이면 정상 — 원본 IP 는 1-a 로만 확인한다) → `curl -s -o /dev/null -w '%{http_code}\n' https://entry-check.echoport.uk/__entry/healthz` → (M5) `gcloud compute backend-services get-health echo-dev-entry-lb --region asia-northeast3 --project team-echo-final` | Cloudflare IP 응답 · HTTP **200**(Envoy 고정 응답 `ok`) · a HEALTHY. 셋 다 맞기 전에는 복구 완료라 하지 않는다 | 2분 |
 | 2 | 풀·모니터 삭제 → Billing 에서 Load Balancing 구독 해지 | 화면 | $5/월 정지 | 3분 |
 | 3 | AWS c 제거 | `terraform -chdir=$AWS_TF plan -input=false -var-file=$BASE -out=$W/c-destroy.tfplan`(entry-c.tfvars 없이 = 스위치 끔) → `terraform -chdir=$AWS_TF apply $W/c-destroy.tfplan` | plan **0 add, 0 change, 27 destroy**, 전부 `entry_c` 자원 | 5분 |
