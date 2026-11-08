@@ -241,7 +241,7 @@ variable "entrypoint_secondary_zones" {
 }
 
 variable "entrypoint_lb_enabled" {
-  description = "진입점 앞단 헬스체크 NLB(평소 a, a 장애 시 b) 를 만든다 (인프라 5.3). entrypoint_secondary_zones 가 있어야 한다. Cloudflare 는 출력 entrypoint_lb_ip 를 가리킨다"
+  description = "진입점 앞단 헬스체크 NLB 를 만든다 (인프라 5.3). entrypoint_secondary_zones 가 있으면 평소 a, a 장애 시 b. 없으면 백엔드는 a 하나(11/8 운영). Cloudflare 는 출력 entrypoint_lb_ip 를 가리킨다"
   type        = bool
   default     = false
 }

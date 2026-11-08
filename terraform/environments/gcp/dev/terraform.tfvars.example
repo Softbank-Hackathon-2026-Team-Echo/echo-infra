@@ -30,5 +30,6 @@ gke_admin_members = [
 #   gcp = "<GKE demo-app 내부 LB IP>:80"
 # }
 
-# 진입점 앞단 헬스체크 NLB (인프라 5.3): entrypoint_secondary_zones 가 있어야 한다
+# 진입점 앞단 헬스체크 NLB (인프라 5.3). 11/8 운영은 보조 없이 a 하나(entrypoint_secondary_zones = []).
 # entrypoint_lb_enabled = true
+# entrypoint_secondary_zones = []

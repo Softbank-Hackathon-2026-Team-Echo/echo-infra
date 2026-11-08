@@ -158,6 +158,16 @@ Prometheus 는 5초마다 긁고 7일 보관. 접근 로그는 JSON 으로 stdou
 
 되돌리기: Cloudflare 레코드를 a IP 로 되돌리면 끝(LB 는 남아 있어도 무해). LB 를 지우려면 `entrypoint_lb_enabled = false` → apply.
 
+### 11/8 — 보조 b 뺌, VM 하나만 (운영 선반영)
+
+이중화는 시연에 필요 없고 b 는 서비스별 분리(서비스 모드) 전 legacy 코드라 a 가 죽어 b 가 받으면 분리가 풀렸다 → **a 하나만** 남긴다. LB IP(Cloudflare 가 가리킴)는 그대로, 백엔드만 a.
+
+- 05:14 `gcloud compute backend-services remove-backend echo-dev-entry-lb --region asia-northeast3 --instance-group echo-dev-entry-b --instance-group-zone asia-northeast3-b` (35초)
+- 05:15~05:16 `gcloud compute instances stop echo-dev-entry-b --zone asia-northeast3-b` (59초). **지우지 않았다** — VM·디스크·고정 IP·인스턴스 그룹은 Terraform state 에 남아 있다(정지 중 디스크·IP 요금은 계속).
+- 그동안 손님 3주소 2초 프로브 실패 0, b 유입 0건(헬스체크도 끊김).
+- Terraform 반영: `entrypoint_secondary_zones = []` 로 바꾸고 apply 하면 b VM·IP·그룹이 지워지고 LB 백엔드는 a 하나로 맞는다(이 PR 에서 LB 를 보조 존 없이도 만들게 바꿈 — 안 바꾸면 LB 째 지워져 대표 주소가 멈춘다). apply 전 plan 에서 지워지는 것이 b 관련 4개(instance·address·instance_group·backend 블록 변경)뿐인지 확인한다.
+- 되돌리기: `gcloud compute instances start echo-dev-entry-b --zone asia-northeast3-b` → `gcloud compute backend-services add-backend echo-dev-entry-lb --region asia-northeast3 --instance-group echo-dev-entry-b --instance-group-zone asia-northeast3-b --failover`.
+
 ## 진입점 c — AWS 서울 (인프라 17, 코드만 · 기본 꺼짐 · 미적용)
 
 입구가 GCP 한 회사·한 리전이면 GCP NLB·VPC·리전 장애 때 a·b 가 같이 죽는다. 같은 한 벌을 **AWS 서울** EC2 c 에 하나 더 두고, Cloudflare Load Balancer 가 GCP NLB(풀 1) → c(풀 2) 순서로 페일오버한다. 설계·적용 절차·되돌리기·요금은 [SPEC](../specs/infra-17-second-provider-entrypoint.md).
