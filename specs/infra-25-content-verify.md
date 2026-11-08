@@ -30,6 +30,7 @@ TABLES="demo.seq_write" SLOT=echo_sub replication/k8s/scripts/content-verify.sh 
 | `MAX_ROWS` | 200000 | 표당 행 상한. 넘으면 지문을 만들지 않고 UNKNOWN |
 | `QUERY_TIMEOUT_MS` | 20000 | 한 쪽 조회의 문장 시간 상한 |
 | `VERIFY_USER` · `VERIFY_DB` | `echo_verify` · `app` | 조회 계정·DB |
+| `PLAN_ID` | 없음 | 이전 계획 id(UUID). 결과 JSON 의 `planId` 로 남깁니다(컷오버 결과 표 `echo_ops.cutover_runs` 와 같은 키) |
 
 종료 코드: `0` 모두 MATCH · `1` MISMATCH 있음 · `2` MISMATCH 없이 UNKNOWN 있음 · `3` 입력 오류(아무것도 실행하지 않음).
 
@@ -59,7 +60,7 @@ TABLES="demo.seq_write" SLOT=echo_sub replication/k8s/scripts/content-verify.sh 
 표준 출력에 JSON 하나를 냅니다. 행 원문·접속 비밀은 결과·로그 어디에도 쓰지 않습니다(지문·개수·코드만). 오류 원문도 행 값이 섞일 수 있어 남기지 않고 종류만 고릅니다.
 
 ```json
-{"method":"content-verify/1","checkedAt":"…Z","source":{"side":"A","db":"app","lsn":"0/7848E48"},"target":{…},
+{"method":"content-verify/1","planId":"b93a332b-…","checkedAt":"…Z","source":{"side":"A","db":"app","lsn":"0/7848E48"},"target":{…},
  "alignment":{"rule":"source-target-source","slot":"echo_sub","caughtUp":true,"waitedMs":109},
  "limits":{"maxRows":200000,"queryTimeoutMs":20000},
  "tables":[{"table":"demo.seq_write","result":"MATCH","reason":null,"rows":{"source":300,"target":300},
@@ -81,7 +82,7 @@ TABLES="demo.seq_write" SLOT=echo_sub replication/k8s/scripts/content-verify.sh 
 
 ## 7. 격리 시험 (`replication/k8s/scripts/tests/content-verify-test.sh`)
 
-로컬 Docker Postgres 17 두 대와 기존 시험용 `tests/bin/kubectl` 로 돌립니다. 운영 경로와 같은 `kubectl exec … psql` 코드 경로를 탑니다. 11/8 결과: **통과 38 · 실패 0**.
+로컬 Docker Postgres 17 두 대와 기존 시험용 `tests/bin/kubectl` 로 돌립니다. 운영 경로와 같은 `kubectl exec … psql` 코드 경로를 탑니다. 11/8 결과: **통과 41 · 실패 0**.
 
 | 사례 | 기대 | 결과 |
 |---|---|---|
@@ -98,7 +99,8 @@ TABLES="demo.seq_write" SLOT=echo_sub replication/k8s/scripts/content-verify.sh 
 | 구독 멈춘 채 출발에 쓰기 / 없는 슬롯 | `NOT_CAUGHT_UP` / `SLOT_MISSING` | 통과 |
 | 검사 중 출발에 계속 쓰기 | `SOURCE_CHANGED` | 통과 |
 | `MAX_ROWS=10` / `QUERY_TIMEOUT_MS=50` (30만 행) | `ROW_LIMIT` / `SOURCE_TIMEOUT` | 통과 |
-| 표·슬롯 이름에 SQL 주입 | 종료 3, 실행 없음 | 통과 |
+| `PLAN_ID` 줌 / 안 줌 | `planId` 그대로 / null | 통과 |
+| 표·슬롯 이름·`PLAN_ID` 에 SQL 주입 | 종료 3, 실행 없음 | 통과 |
 
 소요 시간(로컬 M 시리즈 노트북 Docker, 참고값): 작은 표 3개 0.67초, 30만 행·75 MB 표 1개 2.3~2.6초(출발 2회 + 도착 1회 읽기 포함). 운영 DB 크기·부하에서의 시간은 재지 않았습니다.
 
@@ -107,5 +109,5 @@ TABLES="demo.seq_write" SLOT=echo_sub replication/k8s/scripts/content-verify.sh 
 - 운영 A·B 에서 실행하지 않았습니다. `verify-user.sh` 운영 적용(역할 추가)과 첫 운영 조회는 승인 뒤 시연 이후에 합니다.
 - 운영 DB 의 조회 부하는 미산정입니다. 첫 운영 실행은 `demo.seq_write` 하나, 기본 상한으로 시작합니다.
 - 도착이 물리 복제 대기 서버인 경우, 출발과 도착의 PostgreSQL 주 버전이 다른 경우, 지원 밖 타입은 시험하지 않았습니다.
-- 계획 식별자와 결과 연결·API 응답 초안은 이 이슈 댓글에서 API 서버 쪽과 맞춥니다(이 PR 은 결과 JSON 까지).
+- 계획 연결: 검증기는 `PLAN_ID` 를 결과 JSON 에 남기는 데까지 합니다. 결과 저장 위치와 API 응답 초안(`result.contentCheck`)은 #150 댓글로 제안했고, API 서버 계약·저장 변경은 API 서버 담당 별도 PR 입니다.
 - 전환 차단 조건으로 쓰려면 성능·실패 시 동작·복귀 영향 검증과 별도 적용 승인이 먼저입니다.

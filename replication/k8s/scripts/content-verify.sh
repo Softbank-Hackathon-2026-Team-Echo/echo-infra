@@ -18,6 +18,7 @@
 #   CATCHUP_WAIT     따라잡기를 기다리는 최대 초 (기본 10)
 #   MAX_ROWS         표당 행 상한. 넘으면 지문을 만들지 않고 UNKNOWN(ROW_LIMIT) (기본 200000)
 #   QUERY_TIMEOUT_MS 한 쪽 조회의 문장 시간 상한 (기본 20000)
+#   PLAN_ID          이전 계획 id(UUID). 주면 결과 JSON 의 planId 로 남긴다(컷오버 결과 표 echo_ops.cutover_runs 와 같은 키)
 # 종료 코드: 0 = 모두 MATCH, 1 = MISMATCH 가 하나라도, 2 = MISMATCH 없이 UNKNOWN 이 하나라도, 3 = 입력 오류
 #
 # 비교 시점(같은 상태를 읽었다고 보는 조건) — 「출발 → 도착 → 출발」 샌드위치:
@@ -43,6 +44,7 @@ TABLES="${TABLES:-demo.seq_write}"
 VERIFY_USER="${VERIFY_USER:-echo_verify}"; VERIFY_DB="${VERIFY_DB:-app}"
 SLOT="${SLOT:-}"; CATCHUP_WAIT="${CATCHUP_WAIT:-10}"
 MAX_ROWS="${MAX_ROWS:-200000}"; QUERY_TIMEOUT_MS="${QUERY_TIMEOUT_MS:-20000}"
+PLAN_ID="${PLAN_ID:-}"
 SUPPORTED="'int2','int4','int8','numeric','float4','float8','bool','text','varchar','bpchar','uuid','date','time','timestamp','timestamptz','interval','jsonb','bytea'"
 
 die() { echo "content-verify: $*" >&2; exit 3; }
@@ -50,6 +52,7 @@ die() { echo "content-verify: $*" >&2; exit 3; }
 [[ $VERIFY_USER =~ ^[a-z_][a-z0-9_]{0,62}$ ]] || die "VERIFY_USER 형식"
 [[ $VERIFY_DB =~ ^[a-z_][a-z0-9_]{0,62}$ ]] || die "VERIFY_DB 형식"
 [[ -z $SLOT || $SLOT =~ ^[a-z_][a-z0-9_]{0,62}$ ]] || die "SLOT 형식"
+[[ -z $PLAN_ID || $PLAN_ID =~ ^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$ ]] || die "PLAN_ID 는 uuid 형식"
 for n in "$CATCHUP_WAIT" "$MAX_ROWS" "$QUERY_TIMEOUT_MS"; do [[ $n =~ ^[0-9]{1,9}$ ]] || die "숫자 설정 형식: $n"; done
 TBL=()
 for t in $TABLES; do
@@ -211,8 +214,8 @@ for i in "${!TBL[@]}"; do
     "$(json_s "${C_SCHEMA_S[$i]:-}")" "$(json_s "${C_SCHEMA_D[$i]:-}")" "$(json_s "$spk")" "$(json_s "$tpk")" "$(json_s "$srow")" "$(json_s "$trow")")
 done
 case $CAUGHT_UP in true) caught_json=true ;; null) caught_json=null ;; *) caught_json=false ;; esac
-printf '{"method":"%s","checkedAt":"%s","source":{"side":"%s","db":"%s","lsn":%s},"target":{"side":"%s","db":"%s","lsn":%s},"alignment":{"rule":"source-target-source","slot":%s,"caughtUp":%s,"waitedMs":%s},"limits":{"maxRows":%s,"queryTimeoutMs":%s},"tables":[%s],"summary":{"match":%s,"mismatch":%s,"unknown":%s},"elapsedMs":%s}\n' \
-  "$METHOD_VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SRC" "$VERIFY_DB" "$(json_s "${S1_LSN:-}")" "$DST" "$VERIFY_DB" "$(json_s "${T_LSN:-}")" \
+printf '{"method":"%s","planId":%s,"checkedAt":"%s","source":{"side":"%s","db":"%s","lsn":%s},"target":{"side":"%s","db":"%s","lsn":%s},"alignment":{"rule":"source-target-source","slot":%s,"caughtUp":%s,"waitedMs":%s},"limits":{"maxRows":%s,"queryTimeoutMs":%s},"tables":[%s],"summary":{"match":%s,"mismatch":%s,"unknown":%s},"elapsedMs":%s}\n' \
+  "$METHOD_VERSION" "$(json_s "$(printf '%s' "$PLAN_ID" | tr 'A-F' 'a-f')")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$SRC" "$VERIFY_DB" "$(json_s "${S1_LSN:-}")" "$DST" "$VERIFY_DB" "$(json_s "${T_LSN:-}")" \
   "$(json_s "$SLOT")" "$caught_json" "$WAITED_MS" "$MAX_ROWS" "$QUERY_TIMEOUT_MS" "$rows_json" "$match" "$mismatch" "$unknown" "$(( $(ms) - T_START ))"
 echo "요약: MATCH $match · MISMATCH $mismatch · UNKNOWN $unknown" >&2
 [[ $mismatch -gt 0 ]] && exit 1

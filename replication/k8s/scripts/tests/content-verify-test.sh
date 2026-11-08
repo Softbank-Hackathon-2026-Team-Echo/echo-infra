@@ -128,7 +128,14 @@ q A "CREATE TABLE demo.big (id int PRIMARY KEY, v text); INSERT INTO demo.big SE
 q B "CREATE TABLE demo.big (id int PRIMARY KEY, v text); GRANT SELECT ON demo.big TO echo_verify;" >/dev/null
 cv TABLES="demo.big" MAX_ROWS=1000000 QUERY_TIMEOUT_MS=50; check "QUERY_TIMEOUT_MS=50" UNKNOWN/SOURCE_TIMEOUT "$(res demo.big)"
 
-echo "== 12. 입력 오류는 아무것도 실행하지 않는다"
+echo "== 12. 계획 id 연결"
+cv TABLES="shop.items" SLOT=cv_sub PLAN_ID=11111111-1111-4111-8111-111111111111
+check "planId" 11111111-1111-4111-8111-111111111111 "$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["planId"])' "$OUT")"
+cv TABLES="shop.items"
+check "PLAN_ID 없으면 null" None "$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["planId"])' "$OUT")"
+
+echo "== 13. 입력 오류는 아무것도 실행하지 않는다"
+cv TABLES="shop.items" PLAN_ID="1'; DROP TABLE shop.items; --"; check "PLAN_ID 주입" 3 "$RC"
 cv TABLES="shop.items; DROP TABLE shop.items"; check "표 이름 주입" 3 "$RC"
 cv TABLES="shop.items" SLOT="x'; --"; check "슬롯 이름 주입" 3 "$RC"
 check "shop.items 그대로" 4 "$(q A 'SELECT count(*) FROM shop.items;')"
