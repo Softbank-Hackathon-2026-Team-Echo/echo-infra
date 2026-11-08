@@ -25,7 +25,7 @@ Cloudflare 는 지민 개인 계정에 있고 영역 `echoport.uk` 를 갖는다
 |---|---|---|---|---|
 | `*.echoport.uk` | A → 고정 진입점 IP (`terraform output entrypoint_ip`, GCP dev 루트) | 켬(주황 구름) | 대표 주소 `{서비스}-{8자}.echoport.uk` | 대시보드 DNS → 레코드 추가, 또는 아래 API 예시 |
 | `*.aws-tokyo.echoport.uk` | CNAME → 닻 ALB DNS (`kubectl -n echo-apps-anchor get ingress anchor`) | 끔(DNS only) | EKS 앱 주소 | 같음 |
-| `*.gcp-seoul.echoport.uk` | A → GKE ingress-nginx 내부 IP (`kubectl -n ingress-nginx get svc ingress-nginx-controller`, 지금 `10.60.0.8`) | 끔 | GKE 앱 주소(VPC 안에서만 의미 있음) | 같음 |
+| `*.gcp-seoul.echoport.uk` | A → **고객 클러스터 `echo-dev-customer-gke`** ingress-nginx 내부 IP (`kubectl --context <고객 GKE> -n ingress-nginx get svc ingress-nginx-controller`, 지금 `10.63.0.14`. 11/7 인프라 16.1([#127](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-infra/issues/127)) 전에는 옛 관제탑 클러스터 `10.60.0.8`). 진입점 Envoy `gcp=` 업스트림과 같은 IP 여야 한다 — `preflight.sh` 가 대조 | 끔 | GKE 앱 주소(VPC 안에서만 의미 있음). echo-was 배포 헬스체크(`environmentUrl`)·`preflight.sh`·`REPLAY_BASE` 가 쓴다 | 같음 |
 | ACM 검증 CNAME | `terraform output acm_validation_records` (AWS dev 루트) | 끔 | `*.aws-tokyo.echoport.uk` 인증서 검증 | 같음 |
 | 온프레 터널 CNAME (`demo-onprem-…`, `k3s-…`) | `cloudflared tunnel route dns` 가 만든다 | 켬 | 온프레 데모·k3s 창구 | [onprem/README.md](../onprem/README.md) |
 
@@ -96,4 +96,4 @@ executor 역할 신뢰 조건([#41](https://github.com/Softbank-Hackathon-2026-T
 | `gcloud secrets list` 의 두 비밀 | 존재, version 1 사용 가능, 라벨 `managed-by=terraform` |
 | 두 비밀의 IAM | `echo-dev-echo-was` GSA 의 `secretAccessor` 하나씩 |
 | GKE | cert-manager 3개 Deployment 1/1, ClusterIssuer `letsencrypt-dns` Ready, Certificate `wildcard-gcp-seoul` Ready |
-| `dig x.echoport.uk` / `x.aws-tokyo.echoport.uk` / `x.gcp-seoul.echoport.uk` | Cloudflare 프록시 IP / ALB CNAME / `10.60.0.8` |
+| `dig x.echoport.uk` / `x.aws-tokyo.echoport.uk` / `x.gcp-seoul.echoport.uk` | Cloudflare 프록시 IP / ALB CNAME / `10.63.0.14`(11/7 #127 뒤. 그 전 `10.60.0.8`) |

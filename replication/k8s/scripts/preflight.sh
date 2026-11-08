@@ -48,6 +48,15 @@ set -- $codes
 [ "$1" = "200" ]; check "${APP%%.*}.aws-tokyo /readyz (진입점 VM 에서)" $? "${1:-?}"
 [ "$2" = "200" ]; check "${APP%%.*}.gcp-seoul /readyz (진입점 VM 에서)" $? "${2:-?}"
 
+# BEGIN GCP_ROUTE_CHECK
+# 옛 앱도 /readyz 200을 주므로 DNS와 실제 Envoy 대상 ingress를 함께 대조한다(#127).
+gm=$(gcloud compute ssh echo-dev-entry --zone asia-northeast3-a --tunnel-through-iap --configuration="$GCFG" --quiet --command \
+  "echo D=\$(getent ahostsv4 ${APP%%.*}.gcp-seoul.echoport.uk | awk '{print \$1}' | sort -u); echo U=\$(curl -fsS --max-time 5 127.0.0.1:9901/clusters | sed -n 's/^gcp::\([0-9.]*\):[0-9]*::health_flags::.*/\1/p' | sort -u)" 2>/dev/null </dev/null)
+route_status=$?
+dns_ip=$(echo "$gm" | sed -n 's/^D=//p'); up_ip=$(echo "$gm" | sed -n 's/^U=//p')
+[ "$route_status" = 0 ] && [ -n "$dns_ip" ] && [ -n "$up_ip" ] && [ "$dns_ip" = "$up_ip" ]; check "${APP%%.*}.gcp-seoul DNS = 진입점 gcp 업스트림" $? "DNS ${dns_ip:-?} · 업스트림 ${up_ip:-?}"
+# END GCP_ROUTE_CHECK
+
 echo "== 관측·부하"
 # 관제탑 GKE(echo-was·loadgen). 인프라 16 뒤 B_CTX 는 고객 클러스터라 따로 둔다
 OPS_CTX="${OPS_CTX:-gke_team-echo-final_asia-northeast3-a_echo-dev-gke}"
