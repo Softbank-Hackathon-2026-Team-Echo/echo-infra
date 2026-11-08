@@ -3,7 +3,7 @@ FROM python:3.13-slim
 RUN useradd --uid 1001 --user-group --no-create-home weights \
  && mkdir -p /etc/envoy/dynamic/state \
  && chown -R 1001:1001 /etc/envoy/dynamic
-COPY app.py security_transport.py /app/
+COPY app.py security_transport.py security_https.py /app/
 USER 1001:1001
 EXPOSE 8080
 # 기동 때(compose depends_on 게이트)는 2초 간격, 그 뒤엔 30초. 매번 python 을 띄우므로 자주 돌리지 않는다.

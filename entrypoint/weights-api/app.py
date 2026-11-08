@@ -51,7 +51,10 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DYNAMIC_DIR = os.environ.get("DYNAMIC_DIR", "/etc/envoy/dynamic")
-SECURITY_READ_TOKEN = os.environ.get("SECURITY_READ_TOKEN", "")
+from security_https import read_token
+
+SECURITY_READ_TOKEN = (read_token() if os.environ.get("SECURITY_READ_TOKEN_FILE")
+                       else os.environ.get("SECURITY_READ_TOKEN", ""))
 SECURITY_TRANSPORT_REVISION = os.environ.get("SECURITY_TRANSPORT_REVISION", "v1")
 STATE_DIR = os.path.join(DYNAMIC_DIR, "state")  # watched_directory 는 하위 디렉터리를 보지 않는다
 STATE_PATH = os.path.join(STATE_DIR, "weights.json")

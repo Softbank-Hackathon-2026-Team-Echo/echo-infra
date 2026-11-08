@@ -1,0 +1,69 @@
+# Not included in a production kustomization. Replace every REPLACE value before use.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: security-reader
+  namespace: echo-security
+  annotations:
+    iam.gke.io/gcp-service-account: REPLACE_WITH_DEDICATED_GSA
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: environment-security-collector
+  namespace: echo-security
+spec:
+  suspend: true # enable only after --preflight and policy transition acceptance
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels: {app: environment-security-collector}
+        spec:
+          serviceAccountName: security-reader
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            fsGroup: 1001
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: collector
+              image: REPLACE_WITH_WAS_IMAGE_DIGEST
+              command: ["python", "-m", "app.worker.environment_security", "--once"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef: {name: environment-security-credentials, key: database-url}
+                - {name: SECURITY_ENVIRONMENT_COLLECTOR_ENABLED, value: "true"}
+                - {name: SECURITY_GATE_ENABLED, value: "true"}
+                - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+                - name: SECURITY_ENVIRONMENT_PROFILES
+                  valueFrom:
+                    configMapKeyRef: {name: environment-security-profiles, key: profiles.json}
+                - name: ECHO_SECRET_SECURITY_READ_TOKEN
+                  valueFrom:
+                    secretKeyRef: {name: environment-security-credentials, key: entrypoint-read-token}
+                - name: ECHO_SECRET_SECURITY_ONPREM_TOKEN
+                  valueFrom:
+                    secretKeyRef: {name: environment-security-credentials, key: onprem-reader-token}
+              volumeMounts:
+                - {name: ca, mountPath: /etc/echo-security-ca, readOnly: true}
+              resources:
+                requests: {cpu: 50m, memory: 128Mi}
+                limits: {cpu: 500m, memory: 512Mi}
+          volumes:
+            - name: ca
+              configMap: {name: environment-security-ca}

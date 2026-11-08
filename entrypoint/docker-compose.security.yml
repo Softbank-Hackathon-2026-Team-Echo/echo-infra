@@ -1,0 +1,32 @@
+# Opt-in overlay only. Same read-token file is mounted into both services.
+# Bind a private interface explicitly at rollout; default is host-local.
+services:
+  weights-api:
+    environment:
+      SECURITY_READ_TOKEN: ""
+      SECURITY_READ_TOKEN_FILE: /run/secrets/security-read-token
+    volumes:
+      - ${SECURITY_READ_TOKEN_FILE:?provide token file}:/run/secrets/security-read-token:ro
+  security-https:
+    build: ./weights-api
+    image: echo-entry-weights-api:local
+    command: ["python", "-u", "/app/security_https.py"]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      disable: true
+    environment:
+      SECURITY_READ_TOKEN_FILE: /run/secrets/security-read-token
+      SECURITY_TLS_CERT_FILE: /run/secrets/security.crt
+      SECURITY_TLS_KEY_FILE: /run/secrets/security.key
+    volumes:
+      - ${SECURITY_READ_TOKEN_FILE:?provide token file}:/run/secrets/security-read-token:ro
+      - ${SECURITY_TLS_CERT_FILE:?provide certificate file}:/run/secrets/security.crt:ro
+      - ${SECURITY_TLS_KEY_FILE:?provide key file}:/run/secrets/security.key:ro
+    ports:
+      - "${SECURITY_BIND_IP:-127.0.0.1}:8443:8443"
+    depends_on:
+      weights-api:
+        condition: service_healthy

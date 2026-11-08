@@ -1,0 +1,34 @@
+# Apply per audited cluster after reader-rbac.yaml; select only the relevant subject.
+# GKE customer cluster: GSA User. EKS: access-entry Group. onprem: dedicated KSA.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: security-reader
+  namespace: echo-security
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: echo-environment-security-reader
+subjects:
+  - {kind: Group, name: echo-security-reader, apiGroup: rbac.authorization.k8s.io}
+  - {kind: User, name: REPLACE_WITH_DEDICATED_GSA, apiGroup: rbac.authorization.k8s.io}
+  - {kind: ServiceAccount, name: security-reader, namespace: echo-security}
+roleRef:
+  kind: ClusterRole
+  name: echo-environment-security-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: environment-security-snapshot-reader
+  namespace: echo-security
+subjects:
+  - {kind: Group, name: echo-security-reader, apiGroup: rbac.authorization.k8s.io}
+  - {kind: User, name: REPLACE_WITH_DEDICATED_GSA, apiGroup: rbac.authorization.k8s.io}
+  - {kind: ServiceAccount, name: security-reader, namespace: echo-security}
+roleRef:
+  kind: Role
+  name: transport-evidence-reader
+  apiGroup: rbac.authorization.k8s.io

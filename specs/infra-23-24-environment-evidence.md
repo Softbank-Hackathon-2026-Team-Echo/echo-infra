@@ -27,3 +27,7 @@ main87a64cff 기반 weights32·observer9·journal14 PASS.
 두 이미지 build·YAML8리소스/JSON/AST 검사 PASS. Terraform fmt/validate PASS, 기존 GKE provider 경고 있음. tflint 미설치로 해당 검사는 실행하지 못했다.
 짝 WAS mainca918380+자동화 전체3109 PASS/skip0(마이그레이션59·실제 HTTP 계약 포함), ruff/format/mypy PASS.
 모든 동적 시험은 전용 로컬 자원이며 운영과 구분한다. DB CNI·실제 cloud IAM·3환경 수집 인수는 남았다.
+
+## 전용 runtime 후속
+
+feat/sec-observer-runtime은 검사 전용 GSA/STS/KSA/RBAC·제한 WAS DB 역할·suspend 상태 collector CronJob·TLS 관측 overlay를 추가한다. 기본 인프라 생성은 OFF다. 실제 값·권한/네트워크 적용과 정책 전환 인수는 [운영 연결 절차](../security/environment-observer/README.md)에 남긴다. 로컬 실제 권한 경계와 Terraform mock plan을 검증하되 cloud 인증·운영 수집 완료로 확대하지 않는다.
