@@ -17,7 +17,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 |---|---|
 | `aws-tokyo/` | A: 네임스페이스·Postgres(TLS)·PgBouncer(emptyDir ini)·`30-expose.yaml`(NLB). `kustomization.yaml` 로 한 번에(`apply -k`), **클러스터 실제 상태와 같음**(11/4 `diff -k` 확인) |
 | `gcp-seoul/` | B: 같은 구성(처음부터 TLS·emptyDir ini 포함). PgBouncer 백엔드 자리표시 `__A_HOST__` |
-| `scripts/` | `subscribe.sh`(A→B 세우기) · `lag.sh` · `cutover.sh` · `rollback.sh` · `promote.sh`(A 급사 시 B 승격) · `resync-a.sh`(승격 뒤 A 다시 맞추기) · `verify.sh`(누락·중복 대조) · `ops-table.sh`(컷오버 결과 표 `echo_ops.cutover_runs` 만들기, 인프라 7.2) · `writer.sh`(진입점 경유 쓰기 부하) · `rehearsal.sh`(한 번에: 대조→컷오버→대조→롤백→대조, `rehearsals/` 에 기록) · `sync-role-verifiers.sh`(앱 계정 SCRAM 검증자 A→B 맞추기) · `promote-with-replay.sh`·`replay.sh`(승격 + 진입점 요청 기록 재생, 인프라 12.4 — 기본 꺼짐, `tests/replay-test.sh`) · `common.sh` |
+| `scripts/` | `subscribe.sh`(A→B 세우기) · `lag.sh` · `cutover.sh` · `rollback.sh` · `promote.sh`(A 급사 시 B 승격) · `resync-a.sh`(승격 뒤 A 다시 맞추기) · `verify.sh`(누락·중복 대조) · `content-verify.sh`·`verify-user.sh`(등록 표의 행 내용·스키마 지문 대조, 조회 전용, 인프라 25 — `specs/infra-25-content-verify.md`, `tests/content-verify-test.sh`) · `ops-table.sh`(컷오버 결과 표 `echo_ops.cutover_runs` 만들기, 인프라 7.2) · `writer.sh`(진입점 경유 쓰기 부하) · `rehearsal.sh`(한 번에: 대조→컷오버→대조→롤백→대조, `rehearsals/` 에 기록) · `sync-role-verifiers.sh`(앱 계정 SCRAM 검증자 A→B 맞추기) · `promote-with-replay.sh`·`replay.sh`(승격 + 진입점 요청 기록 재생, 인프라 12.4 — 기본 꺼짐, `tests/replay-test.sh`) · `common.sh` |
 
 ## 적용 순서 (사람이, 데스크톱에서 · 인프라 담당 확인 뒤)
 
