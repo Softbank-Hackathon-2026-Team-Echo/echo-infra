@@ -79,6 +79,12 @@ curl -sS -X POST "https://api.cloudflare.com/client/v4/zones/<영역 id>/dns_rec
 | 컷오버 GSA `echo-dev-cutover` 프로젝트 역할 | `roles/container.clusterViewer` | 컷오버 Job(관제탑 클러스터)이 고객 클러스터 주소·CA 를 GKE API 로 읽고 인증 | `cutover.tf` 에 `google_project_iam_member` 1개(“프로젝트 역할 없음” 원칙 예외 — 읽기 전용, 클러스터 내 권한은 RBAC 로만) |
 | 진입점 VM a·b startup-script `UPSTREAMS` | `gcp=10.63.0.14:80`(고객 클러스터 ingress-nginx 내부 LB) | 동옥 `terraform.tfvars` 가 M1 에 없어 `-target` apply 시 다른 변수 기본값이 섞임 → `add-metadata` 로 한 줄만 | tfvars `entrypoint_upstreams.gcp = "10.63.0.14:80"` → plan 이 No changes 인지 확인 |
 
+## Terraform 관리에서 뺀 것 (11/8)
+
+| 자원 | 상태 | 왜 남겼나 | 지울 때 |
+|---|---|---|---|
+| 고정 IP `echo-dev-entry-b` (진입점 보조 VM b 의 공인 IP, 존 b) | RESERVED(연결 없음). `terraform state rm 'google_compute_address.entry_secondary["b"]'` 로 state 에서만 뺐다 | #144 로 VM b·인스턴스 그룹은 지웠지만, 이 IP 를 아직 OTel 수집기(`cluster-addons/otel-collector/overlays/{aws,onprem}` 의 `ENTRY_B_ENDPOINT`, basic auth·HTTP)와 닻 ALB 허용 목록(`cluster-addons/eks/anchor-ingress.yaml` `inbound-cidrs`)이 가리킨다. 반납하면 다른 GCP 고객이 받을 수 있어 그 전에 참조를 먼저 뺀다 | 위 두 곳과 `replication/k8s/scripts/preflight.sh` 의 `ENTRY_B` 기본값에서 이 IP 를 빼고 적용한 뒤 `gcloud compute addresses delete echo-dev-entry-b --region asia-northeast3` |
+
 ## 이미 코드에 반영된 것
 
 executor 역할 신뢰 조건([#41](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-infra/pull/41)), 온프레 실행기 신원·라벨 정책([#36](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-infra/pull/36)).
