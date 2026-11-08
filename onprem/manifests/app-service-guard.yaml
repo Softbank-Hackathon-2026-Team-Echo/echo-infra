@@ -1,0 +1,39 @@
+# echo-was 가 만든 앱 네임스페이스(app.kubernetes.io/managed-by=echo-was)의 Service 를 ClusterIP 로만, externalIPs 없이 두게 한다.
+#
+# 왜: echo-app-deployer 는 Service 모양을 제한하지 않고, k3s 는 DenyServiceExternalIPs 없이 설치돼(install.sh) 있다.
+#     그래서 실행기 토큰이 새면 externalIPs 에 진입점 IP 를 적은 Service 로 클러스터 안에서 그 IP 로 가는 연결을 가로챌 수 있다.
+#     온프레 OTel collector 는 진입점 :9090 으로 평문 HTTP basic auth remote write 를 보내므로 그 비밀번호가 새어 나간다.
+#     LoadBalancer·NodePort 는 k3s ServiceLB 가 노드 포트를 연다. 11/8 운영 확인: 서버 인자에 admission 설정 없음,
+#     VAP 2개에 Service 검사 없음, 실행기 SA 는 앱 네임스페이스에서 services create 허용, 지금 externalIPs Service 는 0개.
+# 무엇: echo-was 실행기는 ClusterIP 만 만든다(echo-was app/executors/kubernetes/manifests.py). 그 모양만 허용한다.
+#       k3s 재시작이 필요 없고 echo-was 쪽 수정도 없다. kube-system·echo-demo(demo-db-external 등) 다른 네임스페이스는 대상이 아니다.
+# 되돌리기: kubectl delete -f 이 파일 (이미 있는 Service 에는 영향 없음 — 새로 만들거나 바꿀 때만 검사한다).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: echo-app-service-guard
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [services]
+  validations:
+    - expression: "!has(object.spec.type) || object.spec.type == 'ClusterIP'"
+      message: "echo-was 앱 네임스페이스의 Service 는 ClusterIP 만 쓸 수 있다 (LoadBalancer·NodePort·ExternalName 금지)"
+    - expression: "!has(object.spec.externalIPs) || size(object.spec.externalIPs) == 0"
+      message: "echo-was 앱 네임스페이스의 Service 는 externalIPs 를 쓸 수 없다"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: echo-app-service-guard
+spec:
+  policyName: echo-app-service-guard
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        app.kubernetes.io/managed-by: echo-was
