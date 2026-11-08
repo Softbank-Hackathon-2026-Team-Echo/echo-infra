@@ -136,8 +136,14 @@ a_token_refresh() { [[ -n ${A_TOKEN_FILE:-} ]] || return 0
   mv -f "$A_TOKEN_FILE.new" "$A_TOKEN_FILE"; }
 # 창 안 단계별 시각: lap "<무엇을 끝냈나>" → " [정지 +  1.23s] …" (WINDOW_T0 = PAUSE 직전 시각, 없으면 찍지 않음)
 WINDOW_T0=""
+# 시각 로그는 실패해도 아무 일도 일으키지 않아야 한다. set -E 로 명령 치환 안에도 ERR trap(guard_on_error)이 상속되는데,
+# 그 안에서 bc 가 실패하면 guard_stop 이 서브셸에서 돌아 PgBouncer 를 RESUME 하고 서브셸만 끝난다. printf 인자는 실패를
+# 전달하지 않으므로 메인 스크립트는 정지가 풀린 채 전환으로 넘어간다(보안 감사 echo-infra run-2, #133 후속).
+# → 치환 안에서 trap 을 먼저 지우고, 실패하면 시각 대신 ? 를 찍는다.
 lap() { [[ -n $WINDOW_T0 ]] || return 0
-  printf ' [정지 +%6.2fs] %s\n' "$(echo "$(now) - $WINDOW_T0" | bc -l)" "$1"; }
+  local d
+  d=$(trap - ERR; echo "$(now) - $WINDOW_T0" | bc -l 2>/dev/null) || d=""
+  if [[ -n $d ]]; then printf ' [정지 +%6.2fs] %s\n' "$d" "$1"; else printf ' [정지 +     ?s] %s\n' "$1"; fi; }
 
 # ── 컷오버·롤백 결과 표 (인프라 7.2, echo-infra#57) ───────────────────────────────────────────────
 # cutover.sh·rollback.sh 가 RESUME 뒤 새 primary 에 결과 한 줄을 쓴다. echo-was 는 데이터 확인 단계와 같은
