@@ -1,0 +1,14 @@
+{
+  "title": "Echo environment security reader",
+  "description": "Read grant and role metadata only; bind at required project/ancestor scope after review.",
+  "stage": "GA",
+  "includedPermissions": [
+    "resourcemanager.projects.get",
+    "resourcemanager.projects.getIamPolicy",
+    "resourcemanager.folders.get",
+    "resourcemanager.folders.getIamPolicy",
+    "resourcemanager.organizations.get",
+    "resourcemanager.organizations.getIamPolicy",
+    "iam.roles.get"
+  ]
+}

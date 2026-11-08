@@ -1,0 +1,95 @@
+# Deployment template: image digest, targets ConfigMap, service-file Secret and namespace egress
+# must be provisioned first. Not included in any existing kustomization.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: echo-security
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: transport-observer
+  namespace: echo-security
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: transport-evidence
+  namespace: echo-security
+data: {}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: transport-observer
+  namespace: echo-security
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["transport-evidence"]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: transport-observer
+  namespace: echo-security
+subjects:
+  - kind: ServiceAccount
+    name: transport-observer
+    namespace: echo-security
+roleRef:
+  kind: Role
+  name: transport-observer
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: transport-observer
+  namespace: echo-security
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 120
+      template:
+        metadata:
+          labels: {app: transport-observer}
+        spec:
+          serviceAccountName: transport-observer
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: observer
+              image: REPLACE_WITH_OBSERVER_IMAGE_DIGEST
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              env:
+                - name: PGSERVICEFILE
+                  value: /etc/echo-security-secret/pg_service.conf
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {cpu: 200m, memory: 128Mi}
+              volumeMounts:
+                - {name: targets, mountPath: /etc/echo-security, readOnly: true}
+                - {name: credentials, mountPath: /etc/echo-security-secret, readOnly: true}
+          volumes:
+            - name: targets
+              configMap: {name: transport-observer-targets}
+            - name: credentials
+              secret:
+                secretName: transport-observer-services
+                defaultMode: 0440
