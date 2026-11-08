@@ -38,6 +38,8 @@ import hashlib
 import uuid
 from pathlib import Path
 import json
+import hmac
+from security_transport import collect as collect_security_transport
 import os
 import re
 import sys
@@ -49,6 +51,11 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DYNAMIC_DIR = os.environ.get("DYNAMIC_DIR", "/etc/envoy/dynamic")
+from security_https import read_token
+
+SECURITY_READ_TOKEN = (read_token() if os.environ.get("SECURITY_READ_TOKEN_FILE")
+                       else os.environ.get("SECURITY_READ_TOKEN", ""))
+SECURITY_TRANSPORT_REVISION = os.environ.get("SECURITY_TRANSPORT_REVISION", "v1")
 STATE_DIR = os.path.join(DYNAMIC_DIR, "state")  # watched_directory 는 하위 디렉터리를 보지 않는다
 STATE_PATH = os.path.join(STATE_DIR, "weights.json")
 TOKEN = os.environ.get("WEIGHTS_TOKEN", "")
@@ -432,6 +439,32 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self):
+        if urllib.parse.urlsplit(self.path).path == "/security/transport":
+            if not SECURITY_READ_TOKEN or SECURITY_READ_TOKEN == TOKEN:
+                return self._send(503, {"error": "security observation disabled"})
+            if not hmac.compare_digest(self.headers.get("Authorization", ""), f"Bearer {SECURITY_READ_TOKEN}"):
+                return self._send(401, {"error": "read token required"})
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query, keep_blank_values=True)
+            if set(query) - {"route"} or ("route" in query and len(query["route"]) != 1):
+                return self._send(400, {"error": "invalid observation scope"})
+            if SERVICE_ROUTING_ENABLED:
+                if SCOPED_STORE is None:
+                    return self._send(503, {"error": "service registry unavailable"})
+                allowed = {
+                    cluster_id(sid, eid)
+                    for sid, entry in SCOPED_STORE.registry.items()
+                    for eid in entry["environments"]
+                }
+                # 서비스 모드에서는 한 경로만 관측한다. 전역 aws/gcp를 대신 읽지 않는다.
+                if "route" not in query:
+                    return self._send(400, {"error": "route required"})
+            else:
+                allowed = set(ENVS)
+            routes = query.get("route", ENVS)
+            if any(route not in allowed for route in routes):
+                return self._send(404, {"error": "observation route not registered"})
+            return self._send(200, collect_security_transport(ENVOY_ADMIN, routes, SECURITY_TRANSPORT_REVISION))
+
         if self.path == "/health":
             return self._send(200, {"ready": True})  # seed() 가 끝나야 서버가 뜬다
         if SERVICE_ROUTING_ENABLED and self.path != "/metrics":

@@ -15,6 +15,8 @@ services:
     logging: *logging
     environment:
       WEIGHTS_TOKEN: ${WEIGHTS_TOKEN:?WEIGHTS_TOKEN 을 .env 에 넣는다}
+      SECURITY_READ_TOKEN: ${SECURITY_READ_TOKEN:-}
+      SECURITY_TRANSPORT_REVISION: ${SECURITY_TRANSPORT_REVISION:-v1}
       UPSTREAMS: ${UPSTREAMS:?UPSTREAMS 를 .env 에 넣는다 (aws=host:port,gcp=host:port)}
       DEFAULT_WEIGHTS: ${DEFAULT_WEIGHTS:-aws=100,gcp=0}
       SYNC_FROM: ${SYNC_FROM:-}

@@ -1,0 +1,40 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadConfiguredRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:ListRolePolicies",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies"
+      ],
+      "Resource": [
+        "REPLACE_WITH_AUDITED_ROLE_ARNS"
+      ]
+    },
+    {
+      "Sid": "ReadAttachedPolicyVersions",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion"
+      ],
+      "Resource": [
+        "REPLACE_WITH_ATTACHED_POLICY_ARNS"
+      ]
+    },
+    {
+      "Sid": "ReadConfiguredEksAccess",
+      "Effect": "Allow",
+      "Action": [
+        "eks:DescribeAccessEntry",
+        "eks:ListAssociatedAccessPolicies"
+      ],
+      "Resource": [
+        "REPLACE_WITH_AUDITED_EKS_ACCESS_ENTRY_ARNS"
+      ]
+    }
+  ]
+}

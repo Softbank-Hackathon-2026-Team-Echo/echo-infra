@@ -1,0 +1,27 @@
+# Bind this read-only role to the actual collector identity at rollout.
+# Does not grant exec, secrets, mutation, impersonation or role binding.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: echo-environment-security-reader
+rules:
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: transport-evidence-reader
+  namespace: echo-security
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["transport-evidence"]
+    verbs: ["get"]

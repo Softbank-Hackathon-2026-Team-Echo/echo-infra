@@ -1,0 +1,25 @@
+{
+  "revision": "replace-with-config-revision",
+  "targets": [
+    {
+      "id": "app-pool",
+      "kind": "pool-clients",
+      "service": "pool_monitor",
+      "database": "app",
+      "user": "app_user"
+    },
+    {
+      "id": "pool-db",
+      "kind": "pool-servers",
+      "service": "pool_monitor",
+      "database": "app",
+      "user": "app_user"
+    },
+    {
+      "id": "replication",
+      "kind": "postgres",
+      "service": "db_monitor",
+      "session_target": "replication"
+    }
+  ]
+}
