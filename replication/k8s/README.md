@@ -21,7 +21,7 @@ AWS 앱 ──▶ A PgBouncer ──┐                       ┌── B PgBoun
 
 ## 적용 순서 (사람이, 데스크톱에서 · 인프라 담당 확인 뒤)
 
-> **11/7 인프라 16 2단계부터 B 는 고객 클러스터 `echo-dev-customer-gke` 에 있다**(외부 LB `34.158.218.66`, 관제탑용 내부 LB `35-internal-lb.yaml` = `10.63.0.15`, PVC 는 `standard`(pd-standard) 로 적용). 스크립트를 사람이 돌릴 때는 `B_CTX=gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke` 를 꼭 준다 — `common.sh` 기본값(`echo-dev-gke`)은 구독을 끊은 옛 B(멈춘 사본, 시연 끝까지 보존)다. 컷오버 Job 은 이미지의 `B_GKE_CLUSTER` 로 새 B 를 쓴다(`cutover-job/README.md`).
+> **11/7 인프라 16 2단계부터 B 는 고객 클러스터 `echo-dev-customer-gke` 에 있다**(외부 LB `<서울 B 외부 LB IP>`, 관제탑용 내부 LB `35-internal-lb.yaml` = `10.63.0.15`, PVC 는 `standard`(pd-standard) 로 적용). 스크립트를 사람이 돌릴 때는 `B_CTX=gke_team-echo-final_asia-northeast3-a_echo-dev-customer-gke` 를 꼭 준다 — `common.sh` 기본값(`echo-dev-gke`)은 구독을 끊은 옛 B(멈춘 사본, 시연 끝까지 보존)다. 컷오버 Job 은 이미지의 `B_GKE_CLUSTER` 로 새 B 를 쓴다(`cutover-job/README.md`).
 
 ```bash
 export PATH="/opt/homebrew/share/google-cloud-sdk/bin:$PATH"
@@ -124,7 +124,7 @@ scripts/verify.sh
 
 B 가 쓰기 담당일 때 A PgBouncer 는 `db-writer`(ClusterIP) → `db-writer-manual` EndpointSlice(B LB 공인 IP)로 간다. vpc-cni 기본값(`AWS_VPC_K8S_CNI_EXTERNALSNAT=false`, 노드 SNAT)에서는 **보조 ENI 에 붙은 파드**가 이 경로를 쓰면 SYN 이 보조 ENI 로 나가면서 출발 주소가 주 ENI 주소로 SNAT 되어 VPC 가 버린다(nat PREROUTING 에서 kube-proxy DNAT 가 CNI connmark 보다 먼저라 0x80 이 안 붙음). 증상은 PgBouncer `connect failed (age=15s)`. 같은 파드에서 B IP 로 **직접** 붙으면 된다.
 
-- 수정: `terraform/environments/aws/dev/eks.tf` 의 `aws_eks_addon.this["vpc-cni"]` 에 `configuration_values = {env = {AWS_VPC_K8S_CNI_EXTERNALSNAT = "true"}}`. 노드가 사설 서브넷 + NAT 1개라 나가는 공인 IP 는 그대로 `18.180.171.76`(B 허용 목록 값).
+- 수정: `terraform/environments/aws/dev/eks.tf` 의 `aws_eks_addon.this["vpc-cni"]` 에 `configuration_values = {env = {AWS_VPC_K8S_CNI_EXTERNALSNAT = "true"}}`. 노드가 사설 서브넷 + NAT 1개라 나가는 공인 IP 는 그대로 `<EKS 도쿄 NAT IP>`(B 허용 목록 값).
 - **운영은 11/8 04:17 KST 에 `aws eks update-addon --configuration-values '{"env":{"AWS_VPC_K8S_CNI_EXTERNALSNAT":"true"}}' --resolve-conflicts OVERWRITE` 로 먼저 넣었다.** aws-node 두 대가 04:17:47~04:17:56 에 차례로 재시작, 같은 시간 손님 주소 GET·쓰기 실패 0. 적용 뒤 노드 nat 표에서 `AWS-SNAT-CHAIN-0`·`AWS-CONNMARK-CHAIN-0` 규칙이 빠졌고, A PgBouncer 파드 → ClusterIP(B LB 끝점) TCP open·psql 인증 단계 도달.
 - `terraform plan` 은 돌리지 않았다: 적용한 사람 기기에 `backend.hcl`·`terraform.tfvars` 가 없다. 다음 plan 때 이 자원은 이미 같은 값이라 변경 0 이어야 하고, 다른 diff 가 보이면 이 PR 과 무관한 드리프트다.
 - 원복: `aws eks update-addon --cluster-name echo-dev-eks --addon-name vpc-cni --configuration-values '{"env":{"AWS_VPC_K8S_CNI_EXTERNALSNAT":"false"}}' --resolve-conflicts OVERWRITE`(Terraform 으로는 이 줄을 지우고 apply). 원복하면 #140 증상이 돌아온다.
