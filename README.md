@@ -1,5 +1,27 @@
 # echo-infra — 인프라·이전 엔진
 
+> 🛑 **The demo service was shut down after the SoftBank Hackathon 2026 finals (2026-11-08)**, and the EKS, GKE, Envoy entry and on-premises demo environments were taken down. The code, specs and runbooks stay here for reference.
+> 🛑 **데모 서비스는 해커톤 본선(2026-11-08)이 끝난 뒤 내렸고**, EKS · GKE · Envoy 진입점 · 온프레 시연 환경도 함께 내렸다. 코드 · SPEC · 런북은 참고용으로 남겨 둔다.
+
+## English summary
+
+**echo-infra** holds the infrastructure and the migration engine of **EchoPort**, Team Echo's multi-cloud BCDR platform (SoftBank Hackathon 2026 in Korea, Finals 2nd place).
+
+- **Clouds as code**: Terraform for AWS (VPC · EKS · ECR) and GCP (VPC · GKE · Artifact Registry), CI authenticated with OIDC / Workload Identity Federation instead of stored keys.
+- **Fixed entry point**: Cloudflare → GCP network LB → Envoy with per-service host isolation and traffic weights; cert-manager DNS-01 wildcard certificates.
+- **On-premises**: a k3s kit that comes up the same way on any Linux machine and connects through Cloudflare Tunnel with no inbound ports.
+- **Migration engine**: PostgreSQL logical replication plus PgBouncer PAUSE/RESUME to switch the DB writer between clouds, with reverse replication for rollback.
+- **Observability**: OpenTelemetry collectors in all three environments and Prometheus remote write from the entry point.
+- **Incidents fixed during the event**: a cross-cloud DB timeout caused by EKS vpc-cni SNAT ([#141](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-infra/pull/141)) and a ~23 s write gap from PgBouncer's 15 s login retry ([#143](https://github.com/Softbank-Hackathon-2026-Team-Echo/echo-infra/pull/143)).
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Softbank-Hackathon-2026-Team-Echo/.github/main/profile/assets/architecture-final.png" width="100%" alt="EchoPort architecture at the finals: Cloudflare LB → GCP network LB → Envoy → AWS Tokyo EKS · GCP Seoul GKE · on-prem k3s kit; control plane and AI sandbox in GCP Seoul" />
+  <br/><sub>Architecture at the finals (2026-11-08). The environment has since been torn down.</sub>
+</p>
+
+---
+
+
 인프라·이전 엔진 — EKS·GKE·온프레 k3s, Terraform·Argo CD, 트래픽 전환·데이터 동기화·롤백.
 
 ## 시스템 내 위치
